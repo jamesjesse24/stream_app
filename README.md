@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # UHD Movies Node.js Extension
 
 A Node.js conversion of the UHD Movies anime extension, originally written in Kotlin for Aniyomi.
@@ -95,3 +96,8 @@ The extension includes comprehensive error handling:
 ## License
 
 MIT License - Converted from original Kotlin implementation
+=======
+# Streaming App
+
+Repository connection verified. This project is configured for direct GitHub-based updates and testing.
+>>>>>>> 236e3e47584be19d064cacde59e339a16492b5fe
