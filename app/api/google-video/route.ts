@@ -17,7 +17,7 @@ class ProxyError extends Error {
   }
 }
 
-function parseGoogleVideoUrl(value: string | null): URL {
+function parseTrustedVideoUrl(value: string | null): URL {
   if (!value) throw new ProxyError(400, 'Missing url parameter');
 
   let target: URL;
@@ -28,15 +28,17 @@ function parseGoogleVideoUrl(value: string | null): URL {
   }
 
   if (target.protocol !== 'https:') {
-    throw new ProxyError(400, 'Only HTTPS Google video URLs are supported');
+    throw new ProxyError(400, 'Only HTTPS video URLs are supported');
   }
 
   const hostname = target.hostname.toLowerCase();
-  if (
-    hostname !== 'video-downloads.googleusercontent.com' &&
-    !hostname.endsWith('.video-downloads.googleusercontent.com')
-  ) {
-    throw new ProxyError(403, 'Only Google video-download URLs are permitted');
+  const isGoogleDownload =
+    hostname === 'video-downloads.googleusercontent.com' ||
+    hostname.endsWith('.video-downloads.googleusercontent.com');
+  const isVideoPlexCdn = hostname === 'cdn.video-plex.xyz';
+
+  if (!isGoogleDownload && !isVideoPlexCdn) {
+    throw new ProxyError(403, 'Only trusted video CDN URLs are permitted');
   }
 
   if (target.username || target.password) {
@@ -86,7 +88,7 @@ function createResponseHeaders(upstream: Response): Headers {
 
 function errorResponse(error: unknown): NextResponse {
   const status = error instanceof ProxyError ? error.status : 502;
-  const message = error instanceof Error ? error.message : 'Google video proxy failed';
+  const message = error instanceof Error ? error.message : 'Video proxy failed';
   return NextResponse.json({ error: message }, { status });
 }
 
@@ -104,7 +106,7 @@ export async function OPTIONS(): Promise<NextResponse> {
 
 export async function HEAD(request: NextRequest): Promise<NextResponse> {
   try {
-    const target = parseGoogleVideoUrl(request.nextUrl.searchParams.get('url'));
+    const target = parseTrustedVideoUrl(request.nextUrl.searchParams.get('url'));
     const headers = createUpstreamHeaders(request);
     // Download URLs do not consistently implement HEAD. A one-byte GET gives
     // us the same metadata without downloading the movie.
@@ -135,7 +137,7 @@ export async function HEAD(request: NextRequest): Promise<NextResponse> {
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
-    const target = parseGoogleVideoUrl(request.nextUrl.searchParams.get('url'));
+    const target = parseTrustedVideoUrl(request.nextUrl.searchParams.get('url'));
     const requestedRange = request.headers.get('range');
     const upstream = await fetch(target, {
       method: 'GET',
