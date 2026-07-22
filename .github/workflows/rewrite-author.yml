@@ -1,0 +1,42 @@
+name: Rewrite author to James
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/rewrite-author.yml
+
+permissions:
+  contents: write
+
+jobs:
+  rewrite:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Remove one-time workflow
+        run: |
+          git config user.name "James"
+          git config user.email "257743569+jamesjesse24@users.noreply.github.com"
+          git rm .github/workflows/rewrite-author.yml
+          git commit -m "Remove one-time author rewrite workflow"
+
+      - name: Rewrite all authors and committers
+        env:
+          FILTER_BRANCH_SQUELCH_WARNING: "1"
+        run: |
+          git filter-branch --force --env-filter '
+          export GIT_AUTHOR_NAME="James"
+          export GIT_AUTHOR_EMAIL="257743569+jamesjesse24@users.noreply.github.com"
+          export GIT_COMMITTER_NAME="James"
+          export GIT_COMMITTER_EMAIL="257743569+jamesjesse24@users.noreply.github.com"
+          ' --tag-name-filter cat -- --all
+
+      - name: Force-push rewritten main branch
+        run: git push --force origin HEAD:main
