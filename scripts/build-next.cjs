@@ -24,7 +24,7 @@ const correctedNullNarrowingBlock = [
   '    googlePlaybackOverride &&',
   '    googlePlaybackOverride.sourceUrl === activePlaybackSource?.url',
   '      ? googlePlaybackOverride.mode',
-  "      : 'direct';",
+  "      : 'remux';",
 ].join('\n');
 
 const autoplayPattern = /    const tryAutoPlay = async \(\) => \{\r?\n      if \(autoplayAttempted \|\| \(!autoPlay && !shouldResumePlayingRef\.current\)\) return;\r?\n      autoplayAttempted = true;\r?\n      try \{\r?\n        await video\.play\(\);\r?\n      \} catch \(error\) \{\r?\n        if \(\(error as DOMException\)\?\.name !== 'NotAllowedError'\) \{\r?\n          console\.warn\('Playback could not start automatically:', error\);\r?\n        \}\r?\n        setIsPlaying\(false\);\r?\n      \}\r?\n    \};/;
@@ -59,7 +59,7 @@ const correctedAutoplayBlock = [
 
 let patched = original;
 patched = applyRequiredPatch(patched, {
-  name: 'player null-narrowing',
+  name: 'player null-narrowing and Google MKV remux default',
   pattern: nullNarrowingPattern,
   replacement: correctedNullNarrowingBlock,
 });
