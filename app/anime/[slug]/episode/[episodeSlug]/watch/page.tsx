@@ -7,10 +7,36 @@ import { EnhancedVideoPlayer } from '@/components/EnhancedVideoPlayer';
 import UHDMoviesAPI from '@/lib/api';
 import { Episode, VideoLink } from '@/types';
 
+function normalizeSourceForPlayback(source: VideoLink): VideoLink {
+  if (!source?.url || source.url.startsWith('/api/google-video?')) return source;
+
+  try {
+    const target = new URL(source.url);
+    if (target.hostname.toLowerCase() !== 'cdn.video-plex.xyz') return source;
+
+    const params = new URLSearchParams({ url: target.toString() });
+    const resolution = source.quality.match(/(?:2160|1440|1080|720|480|360)p/i)?.[0] || 'HD';
+
+    // VideoPlex links are already seekable files. Route them through the
+    // lightweight byte-range proxy instead of the DriveSeed FFmpeg pipeline.
+    return {
+      ...source,
+      url: `/api/google-video?${params.toString()}`,
+      quality: `${resolution} - VideoPlex Direct`,
+      isHls: false,
+      videoUrl: `/api/google-video?${params.toString()}`,
+    };
+  } catch {
+    return source;
+  }
+}
+
 function mergeSources(primary: VideoLink, groups: VideoLink[][]): VideoLink[] {
   const unique = new Map<string, VideoLink>();
-  unique.set(primary.url, primary);
-  groups.flat().forEach((source) => {
+  const normalizedPrimary = normalizeSourceForPlayback(primary);
+  unique.set(normalizedPrimary.url, normalizedPrimary);
+  groups.flat().forEach((rawSource) => {
+    const source = normalizeSourceForPlayback(rawSource);
     if (!source?.url) return;
     const existing = unique.get(source.url);
     if (!existing) {
@@ -45,7 +71,7 @@ export default function WatchPage() {
   const videoUrl = searchParams.get('video') || '';
   const quality = searchParams.get('quality') || 'Unknown source';
   const initialSource = useMemo<VideoLink>(
-    () => ({ url: videoUrl, quality }),
+    () => normalizeSourceForPlayback({ url: videoUrl, quality }),
     [quality, videoUrl],
   );
   const [primarySource, setPrimarySource] = useState<VideoLink>(initialSource);
