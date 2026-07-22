@@ -1,0 +1,179 @@
+name: Fix VideoPlex playback
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/fix-video-plex-playback.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Patch direct playback routing
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          player_path = Path('src/components/EnhancedVideoPlayer.tsx')
+          player = player_path.read_text(encoding='utf-8')
+          old_helper = """function isGoogleVideoDownload(value: string): boolean {
+            try {
+              const hostname = new URL(value).hostname.toLowerCase();
+              return (
+                hostname === 'video-downloads.googleusercontent.com' ||
+                hostname.endsWith('.video-downloads.googleusercontent.com')
+              );
+            } catch {
+              return false;
+            }
+          }
+          """
+          new_helper = """function isGoogleVideoDownload(value: string): boolean {
+            try {
+              const hostname = new URL(value).hostname.toLowerCase();
+              const isGoogleDownload =
+                hostname === 'video-downloads.googleusercontent.com' ||
+                hostname.endsWith('.video-downloads.googleusercontent.com');
+              const isVideoPlexCdn = hostname === 'cdn.video-plex.xyz';
+              return isGoogleDownload || isVideoPlexCdn;
+            } catch {
+              return false;
+            }
+          }
+          """
+          if old_helper not in player:
+            raise SystemExit('Player routing helper did not match expected source')
+          player = player.replace(old_helper, new_helper, 1)
+          player = player.replace(
+            "// Google Drive download URLs are already byte-seekable. Sending them\n  // directly into the full FFmpeg encode pipeline makes startup much slower",
+            "// Google Drive and trusted DriveSeed CDN URLs are already byte-seekable.\n  // Sending them directly into the full FFmpeg encode pipeline makes startup much slower",
+            1,
+          )
+          player_path.write_text(player, encoding='utf-8')
+
+          proxy_path = Path('app/api/google-video/route.ts')
+          proxy = proxy_path.read_text(encoding='utf-8')
+          proxy = proxy.replace(
+            "throw new ProxyError(400, 'Only HTTPS Google video URLs are supported');",
+            "throw new ProxyError(400, 'Only HTTPS video URLs are supported');",
+            1,
+          )
+          old_allowlist = """  const hostname = target.hostname.toLowerCase();
+            if (
+              hostname !== 'video-downloads.googleusercontent.com' &&
+              !hostname.endsWith('.video-downloads.googleusercontent.com')
+            ) {
+              throw new ProxyError(403, 'Only Google video-download URLs are permitted');
+            }
+          """
+          new_allowlist = """  const hostname = target.hostname.toLowerCase();
+            const isGoogleDownload =
+              hostname === 'video-downloads.googleusercontent.com' ||
+              hostname.endsWith('.video-downloads.googleusercontent.com');
+            const isVideoPlexCdn = hostname === 'cdn.video-plex.xyz';
+            if (!isGoogleDownload && !isVideoPlexCdn) {
+              throw new ProxyError(403, 'Only trusted video CDN URLs are permitted');
+            }
+          """
+          if old_allowlist not in proxy:
+            raise SystemExit('Proxy allowlist did not match expected source')
+          proxy = proxy.replace(old_allowlist, new_allowlist, 1)
+          proxy = proxy.replace(
+            "'Google video proxy failed'",
+            "'Video proxy failed'",
+            1,
+          )
+          proxy_path.write_text(proxy, encoding='utf-8')
+
+          test_path = Path('scripts/test-google-video-playback-fix.cjs')
+          test = test_path.read_text(encoding='utf-8')
+          test = test.replace(
+            "const ts = require('/opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript');",
+            "const ts = require('typescript');",
+            1,
+          )
+          marker = """  const transcode = getPlaybackUrl(source, 'transcode');
+            assert.equal(transcode.strategy, 'google-transcode');
+            assert.equal(new URL(`http://local${transcode.url}`).searchParams.get('transcode'), '1');
+          """
+          addition = marker + """
+
+            const videoPlexUrl = 'https://cdn.video-plex.xyz/example-token::example-signature';
+            const videoPlexSource = {
+              url: videoPlexUrl,
+              quality: '1080p - DriveSeed Instant',
+            };
+            assert.equal(isGoogleVideoDownload(videoPlexUrl), true);
+            const videoPlexDirect = getPlaybackUrl(videoPlexSource, 'direct');
+            assert.equal(videoPlexDirect.strategy, 'google-direct');
+            assert.match(videoPlexDirect.url, /^\/api\/google-video\?/);
+            assert.equal(
+              new URL(`http://local${videoPlexDirect.url}`).searchParams.get('url'),
+              videoPlexUrl,
+            );
+          """
+          if marker not in test:
+            raise SystemExit('Playback routing test marker did not match expected source')
+          test = test.replace(marker, addition, 1)
+
+          route_marker = """  const ranged = await route.GET(requestFor(googleUrl, 'bytes=0-3'));
+            assert.equal(ranged.status, 206);
+            assert.equal(captured.target, googleUrl);
+            assert.equal(captured.init.headers.get('range'), 'bytes=0-3');
+            assert.equal(ranged.headers.get('content-range'), 'bytes 0-3/1000');
+            assert.equal(ranged.headers.get('x-accel-buffering'), 'no');
+          """
+          route_addition = route_marker + """
+
+            const videoPlexRanged = await route.GET(requestFor(videoPlexUrl, 'bytes=0-3'));
+            assert.equal(videoPlexRanged.status, 206);
+            assert.equal(captured.target, videoPlexUrl);
+            assert.equal(captured.init.headers.get('range'), 'bytes=0-3');
+          """
+          if route_marker not in test:
+            raise SystemExit('Range proxy test marker did not match expected source')
+          test = test.replace(route_marker, route_addition, 1)
+          test = test.replace(
+            "PASS Google direct/range/remux/transcode routing tests",
+            "PASS Google and VideoPlex direct/range/remux/transcode routing tests",
+            1,
+          )
+          test_path.write_text(test, encoding='utf-8')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run playback regression test
+        run: node scripts/test-google-video-playback-fix.cjs
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Commit tested fix
+        shell: bash
+        run: |
+          git config user.name "James"
+          git config user.email "257743569+jamesjesse24@users.noreply.github.com"
+          git rm .github/workflows/fix-video-plex-playback.yml
+          git add src/components/EnhancedVideoPlayer.tsx app/api/google-video/route.ts scripts/test-google-video-playback-fix.cjs
+          git commit -m "Fix VideoPlex DriveSeed playback buffering"
+          git push origin HEAD:main
