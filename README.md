@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # UHD Movies Node.js Extension
 
 A Node.js conversion of the UHD Movies anime extension, originally written in Kotlin for Aniyomi.
@@ -28,31 +27,20 @@ import UHDMovies from './src/index.js';
 
 const extension = new UHDMovies();
 
-// Get popular anime
 const popular = await extension.getPopularAnime(1);
-
-// Search for anime
 const searchResults = await extension.searchAnime(1, "action movies");
-
-// Get anime details
 const details = await extension.getAnimeDetails(animeUrl);
-
-// Get episode list
 const episodes = await extension.getEpisodeList(animeUrl);
-
-// Get video links
 const videos = await extension.getVideoList(episode);
 ```
 
 ## Configuration
 
-You can configure the extension using environment variables:
+Environment variables:
 
-- `UHD_DOMAIN`: Base domain (default: https://uhdmovies.vip)
-- `UHD_QUALITY`: Preferred quality (default: 1080p)
-- `UHD_SIZE_SORT`: Size sorting (asc/desc, default: asc)
-
-Or by updating preferences programmatically:
+- `UHD_DOMAIN`: Base domain
+- `UHD_QUALITY`: Preferred quality, such as `1080p`
+- `UHD_SIZE_SORT`: Size sorting, `asc` or `desc`
 
 ```javascript
 extension.updatePreferences({
@@ -62,42 +50,10 @@ extension.updatePreferences({
 });
 ```
 
-## Dependencies
+## Playback
 
-- `axios`: HTTP client
-- `cheerio`: HTML parsing
-- `tough-cookie`: Cookie management
-- `form-data`: Multipart form handling
-
-## Error Handling
-
-The extension includes comprehensive error handling:
-
-- Network timeouts and retries
-- Invalid URL handling
-- Missing content graceful degradation
-- Cookie management errors
-
-## API Reference
-
-### Main Methods
-
-- `getPopularAnime(page)`: Get popular anime list
-- `searchAnime(page, query)`: Search for anime
-- `getAnimeDetails(url)`: Get detailed anime information
-- `getEpisodeList(url)`: Get episode list for an anime
-- `getVideoList(episode)`: Get video links for an episode
-
-### Configuration Methods
-
-- `updatePreferences(prefs)`: Update extension preferences
-- `getCurrentBaseUrl()`: Get current base URL (handles redirects)
+The Next.js application includes multi-source playback, Google video byte-range proxying, HLS compatibility fallbacks, source file-size information, and selected-server persistence.
 
 ## License
 
-MIT License - Converted from original Kotlin implementation
-=======
-# Streaming App
-
-Repository connection verified. This project is configured for direct GitHub-based updates and testing.
->>>>>>> 236e3e47584be19d064cacde59e339a16492b5fe
+MIT License.
