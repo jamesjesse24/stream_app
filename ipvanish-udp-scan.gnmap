@@ -1,0 +1,4 @@
+# Nmap 7.97 scan initiated Fri Aug  1 06:57:53 2025 as: nmap -sU -p 1-2000 --top-ports 50 --open --max-retries 2 --host-timeout 2m -oA ipvanish-udp-scan mnl-c05.ipvanish.com
+Host: 156.59.233.153 ()	Status: Up
+Host: 156.59.233.153 ()	Ports: 53/open/udp//domain///, 500/open/udp//isakmp///	Ignored State: open|filtered (48)
+# Nmap done at Fri Aug  1 06:57:59 2025 -- 1 IP address (1 host up) scanned in 5.76 seconds

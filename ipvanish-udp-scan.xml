@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<?xml-stylesheet href="file:///C:/Program Files (x86)/Nmap/nmap.xsl" type="text/xsl"?>
+<!-- Nmap 7.97 scan initiated Fri Aug  1 06:57:53 2025 as: nmap -sU -p 1-2000 -&#45;top-ports 50 -&#45;open -&#45;max-retries 2 -&#45;host-timeout 2m -oA ipvanish-udp-scan mnl-c05.ipvanish.com -->
+<nmaprun scanner="nmap" args="nmap -sU -p 1-2000 -&#45;top-ports 50 -&#45;open -&#45;max-retries 2 -&#45;host-timeout 2m -oA ipvanish-udp-scan mnl-c05.ipvanish.com" start="1754002673" startstr="Fri Aug  1 06:57:53 2025" version="7.97" xmloutputversion="1.05">
+<scaninfo type="udp" protocol="udp" numservices="50" services="7,9,19,49,53,67-69,80,88,111,123,135-139,161-162,177,427,445,497,500,514,518,520,593,626,631,996-999,1023,1025-1029,1433-1434,1645-1646,1701,1718-1719,1812,1900,2000"/>
+<verbose level="0"/>
+<debugging level="0"/>
+<hosthint><status state="up" reason="unknown-response" reason_ttl="0"/>
+<address addr="156.59.233.153" addrtype="ipv4"/>
+<hostnames>
+<hostname name="mnl-c05.ipvanish.com" type="user"/>
+</hostnames>
+</hosthint>
+<host starttime="1754002675" endtime="1754002679"><status state="up" reason="echo-reply" reason_ttl="63"/>
+<address addr="156.59.233.153" addrtype="ipv4"/>
+<hostnames>
+<hostname name="mnl-c05.ipvanish.com" type="user"/>
+</hostnames>
+<ports><extraports state="open|filtered" count="48">
+<extrareasons reason="no-response" count="48" proto="udp" ports="7,9,19,49,67-69,80,88,111,123,135-139,161-162,177,427,445,497,514,518,520,593,626,631,996-999,1023,1025-1029,1433-1434,1645-1646,1701,1718-1719,1812,1900,2000"/>
+</extraports>
+<port protocol="udp" portid="53"><state state="open" reason="udp-response" reason_ttl="64"/><service name="domain" method="table" conf="3"/></port>
+<port protocol="udp" portid="500"><state state="open" reason="udp-response" reason_ttl="63"/><service name="isakmp" method="table" conf="3"/></port>
+</ports>
+<times srtt="69953" rttvar="47843" to="261325"/>
+</host>
+<runstats><finished time="1754002679" timestr="Fri Aug  1 06:57:59 2025" summary="Nmap done at Fri Aug  1 06:57:59 2025; 1 IP address (1 host up) scanned in 5.76 seconds" elapsed="5.76" exit="success"/><hosts up="1" down="0" total="1"/>
+</runstats>
+</nmaprun>

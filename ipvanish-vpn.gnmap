@@ -1,0 +1,4 @@
+# Nmap 7.97 scan initiated Fri Aug  1 06:43:06 2025 as: nmap -sV -p 443,444,8080,8081,8443 --version-all --script ssl-cert,http-title,http-headers -oA ipvanish-vpn mnl-c05.ipvanish.com
+Host: 156.59.233.153 ()	Status: Up
+Host: 156.59.233.153 ()	Ports: 443/open/tcp//openvpn//OpenVPN/, 444/open/tcp//openvpn//OpenVPN/, 8080/open/tcp//openvpn//OpenVPN/, 8081/open/tcp//openvpn//OpenVPN/, 8443/open/tcp//openvpn//OpenVPN/
+# Nmap done at Fri Aug  1 06:44:29 2025 -- 1 IP address (1 host up) scanned in 83.00 seconds

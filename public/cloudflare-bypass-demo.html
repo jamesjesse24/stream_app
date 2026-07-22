@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SupJAV Cloudflare Bypass Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .step {
+            background: #f8f9fa;
+            padding: 15px;
+            margin: 10px 0;
+            border-left: 4px solid #007bff;
+            border-radius: 5px;
+        }
+        .code {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin: 5px 0;
+        }
+        textarea {
+            width: 100%;
+            height: 100px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-family: monospace;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔓 SupJAV Cloudflare Bypass Demo</h1>
+        
+        <div class="step">
+            <h3>📋 Instructions:</h3>
+            <ol>
+                <li>Open <a href="https://supjav.com" target="_blank">https://supjav.com</a> in a new tab</li>
+                <li>Complete the Cloudflare "I'm not a robot" challenge</li>
+                <li>Open Developer Tools (F12) → Application → Cookies → https://supjav.com</li>
+                <li>Copy the <strong>cf_clearance</strong> cookie value</li>
+                <li>Paste it below and test the API</li>
+            </ol>
+        </div>
+
+        <div class="step">
+            <h3>🍪 Cookie Setup:</h3>
+            <label>Session Token:</label>
+            <input type="text" id="sessionToken" value="" placeholder="Auto-generated">
+            
+            <label>cf_clearance Cookie:</label>
+            <input type="text" id="cfClearance" placeholder="Paste your cf_clearance cookie value here">
+            
+            <label>Additional Cookies (optional):</label>
+            <textarea id="additionalCookies" placeholder="One cookie per line, format: name=value"></textarea>
+            
+            <button onclick="generateSessionToken()">Generate Session Token</button>
+            <button onclick="setCookies()">Set Cookies</button>
+        </div>
+
+        <div class="step">
+            <h3>🧪 API Testing:</h3>
+            <button onclick="testInfo()">Test Info</button>
+            <button onclick="testPopular()">Test Popular</button>
+            <button onclick="testSearch()">Test Search</button>
+            
+            <div id="results"></div>
+        </div>
+
+        <div class="step">
+            <h3>📖 API Usage Examples:</h3>
+            <div class="code">
+# Get source info
+GET /api/supjav?action=info
+
+# Get popular content with session
+GET /api/supjav?action=popular&lang=en&page=1&sessionToken=YOUR_SESSION_TOKEN
+
+# Search with session
+GET /api/supjav?action=search&query=school&lang=en&page=1&sessionToken=YOUR_SESSION_TOKEN
+
+# Set session cookies
+POST /api/supjav/set-session
+{
+  "sessionToken": "YOUR_SESSION_TOKEN",
+  "cookies": ["cf_clearance=YOUR_COOKIE_VALUE"],
+  "userAgent": "Mozilla/5.0..."
+}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentSessionToken = '';
+
+        function generateSessionToken() {
+            const timestamp = Date.now();
+            const random = Math.random().toString(36).substring(2, 8);
+            currentSessionToken = `cf_session_${random}_${timestamp}`;
+            document.getElementById('sessionToken').value = currentSessionToken;
+        }
+
+        async function setCookies() {
+            const sessionToken = document.getElementById('sessionToken').value || currentSessionToken;
+            const cfClearance = document.getElementById('cfClearance').value;
+            const additionalCookies = document.getElementById('additionalCookies').value.split('\n').filter(c => c.trim());
+
+            if (!cfClearance) {
+                showResult('❌ Please provide cf_clearance cookie', 'error');
+                return;
+            }
+
+            const cookies = [`cf_clearance=${cfClearance}`, ...additionalCookies];
+
+            try {
+                const response = await fetch('/api/supjav/set-session', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        sessionToken,
+                        cookies,
+                        userAgent: navigator.userAgent
+                    })
+                });
+
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showResult(`✅ Session set! Token: ${sessionToken} (${result.cookieCount} cookies)`, 'success');
+                    currentSessionToken = sessionToken;
+                } else {
+                    showResult(`❌ Error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                showResult(`💥 Failed to set cookies: ${error.message}`, 'error');
+            }
+        }
+
+        async function testInfo() {
+            try {
+                const response = await fetch('/api/supjav?action=info');
+                const result = await response.json();
+                showResult(`ℹ️ Info: ${JSON.stringify(result, null, 2)}`, 'success');
+            } catch (error) {
+                showResult(`💥 Info test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testPopular() {
+            const sessionToken = document.getElementById('sessionToken').value;
+            const url = `/api/supjav?action=popular&lang=en&page=1${sessionToken ? '&sessionToken=' + sessionToken : ''}`;
+            
+            try {
+                const response = await fetch(url);
+                const result = await response.json();
+                
+                if (result.needsChallenge) {
+                    showResult(`🚫 Challenge needed. Instructions:\n${result.instructions.join('\n')}`, 'error');
+                } else {
+                    showResult(`🎉 Popular: ${result.animeList.length} items found`, 'success');
+                }
+            } catch (error) {
+                showResult(`💥 Popular test failed: ${error.message}`, 'error');
+            }
+        }
+
+        async function testSearch() {
+            const sessionToken = document.getElementById('sessionToken').value;
+            const url = `/api/supjav?action=search&query=test&lang=en&page=1${sessionToken ? '&sessionToken=' + sessionToken : ''}`;
+            
+            try {
+                const response = await fetch(url);
+                const result = await response.json();
+                
+                if (result.needsChallenge) {
+                    showResult(`🚫 Challenge needed. Instructions:\n${result.instructions.join('\n')}`, 'error');
+                } else {
+                    showResult(`🔍 Search: ${result.animeList.length} results`, 'success');
+                }
+            } catch (error) {
+                showResult(`💥 Search test failed: ${error.message}`, 'error');
+            }
+        }
+
+        function showResult(message, type) {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = `<div class="${type}">${message}</div>`;
+        }
+
+        // Auto-generate session token on load
+        generateSessionToken();
+    </script>
+</body>
+</html>
