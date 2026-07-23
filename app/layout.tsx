@@ -1,4 +1,5 @@
 import { Inter } from 'next/font/google'
+import { OnlineSubtitleSearch } from '@/components/OnlineSubtitleSearch'
 import { StreamDebugProbe } from '@/components/StreamDebugProbe'
 import { SubtitleSyncControl } from '@/components/SubtitleSyncControl'
 import './globals.css'
@@ -20,6 +21,7 @@ export default function RootLayout({
       <body className={`${inter.className} bg-gray-950 text-white`}>
         <StreamDebugProbe />
         <SubtitleSyncControl />
+        <OnlineSubtitleSearch />
         <div className="min-h-screen bg-gradient-to-br from-gray-950 via-gray-900 to-blue-950">
           {children}
         </div>
