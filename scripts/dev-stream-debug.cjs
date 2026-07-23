@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { patchLinearTimelinePlayer } = require('./patch-linear-timeline.cjs');
+const { patchManualServerSelection } = require('./patch-manual-server-selection.cjs');
 
 const root = process.cwd();
 const playerPath = path.join(root, 'src', 'components', 'EnhancedVideoPlayer.tsx');
@@ -83,6 +84,7 @@ if (!patchedPlayer.includes(autoplayReplacement)) {
   );
 }
 
+patchedPlayer = patchManualServerSelection(patchedPlayer);
 patchedPlayer = patchLinearTimelinePlayer(patchedPlayer);
 fs.writeFileSync(playerPath, patchedPlayer, 'utf8');
 
@@ -98,6 +100,7 @@ console.log('[stream-debug] Development diagnostics enabled.');
 console.log('[stream-debug] Google MKV playback uses sequential HLS without HTTP byte ranges.');
 console.log('[stream-debug] Full source duration is exposed immediately; future seeks wait for FFmpeg to generate the requested segment.');
 console.log('[stream-debug] Preferred built-in text subtitles are preserved as WebVTT HLS tracks.');
+console.log('[stream-debug] Manually selected servers remain pinned during seek recovery.');
 console.log('[stream-debug] Stream requests, API responses, FFmpeg output, media events, and errors will appear here.');
 
 const child = spawn(process.execPath, args, {
