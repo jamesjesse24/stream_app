@@ -1,4 +1,4 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';
+import { spawn, type ChildProcess } from 'child_process';
 import { createHash } from 'crypto';
 import { mkdir, readFile, rm, stat } from 'fs/promises';
 import path from 'path';
@@ -12,14 +12,21 @@ const CACHE_ROOT = path.resolve(process.cwd(), '.hls-linear-cache');
 const SESSION_IDLE_MS = 20 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 1000;
 const PLAYLIST_WAIT_MS = 45 * 1000;
-const SEGMENT_WAIT_MS = 180 * 1000;
+const SEGMENT_WAIT_MS = 12 * 60 * 1000;
 const FILE_POLL_MS = 150;
-const MAX_SEGMENT_BYTES = 256 * 1024 * 1024;
+const SEGMENT_DURATION_SECONDS = 4;
+const MAX_ASSET_BYTES = 256 * 1024 * 1024;
 const SESSION_PATTERN = /^[a-f0-9]{32}$/;
-const ASSET_PATTERN = /^(?:stream\.m3u8|segment-\d{6}\.ts)$/;
+const ASSET_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,180}$/;
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
   '(KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36';
+
+interface SubtitleTrack {
+  inputIndex: number;
+  language: string;
+  name: string;
+}
 
 interface LinearSession {
   id: string;
@@ -28,20 +35,34 @@ interface LinearSession {
   transcode: boolean;
   directory: string;
   playlistPath: string;
+  masterPlaylistPath: string;
   controller: AbortController;
-  process: ChildProcessWithoutNullStreams | null;
+  process: ChildProcess | null;
   startedAt: number;
   lastAccess: number;
   finished: boolean;
   exitCode: number | null;
   error: Error | null;
   stderr: string;
+  durationSeconds: number | null;
+  generatedSeconds: number;
+  subtitleTrack: SubtitleTrack | null;
   startPromise: Promise<void>;
 }
 
 interface LinearStore {
   sessions: Map<string, LinearSession>;
   cleanupTimer?: NodeJS.Timeout;
+}
+
+interface ProbeStream {
+  index?: number;
+  codec_type?: string;
+  codec_name?: string;
+  tags?: {
+    language?: string;
+    title?: string;
+  };
 }
 
 class HttpError extends Error {
@@ -94,6 +115,10 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     session.lastAccess = Date.now();
 
     await waitForAsset(session, 'stream.m3u8', PLAYLIST_WAIT_MS);
+    if (session.subtitleTrack) {
+      await waitForAsset(session, 'master.m3u8', PLAYLIST_WAIT_MS);
+      return genericPlaylistResponse(session, 'master.m3u8');
+    }
     return playlistResponse(session);
   } catch (error) {
     return errorResponse(error, 'Failed to create sequential playback stream');
@@ -115,16 +140,18 @@ async function serveAsset(
   if (!session) throw new HttpError(404, 'Sequential playback session not found');
   session.lastAccess = Date.now();
 
-  if (asset === 'stream.m3u8') {
+  if (asset.endsWith('.m3u8')) {
     await waitForAsset(session, asset, PLAYLIST_WAIT_MS);
-    return playlistResponse(session);
+    return asset === 'stream.m3u8'
+      ? playlistResponse(session)
+      : genericPlaylistResponse(session, asset);
   }
 
   await waitForAsset(session, asset, SEGMENT_WAIT_MS);
   const assetPath = safeAssetPath(session, asset);
   const info = await stat(assetPath);
-  if (!info.isFile() || info.size <= 0 || info.size > MAX_SEGMENT_BYTES) {
-    throw new HttpError(502, 'Generated segment is invalid');
+  if (!info.isFile() || info.size <= 0 || info.size > MAX_ASSET_BYTES) {
+    throw new HttpError(502, 'Generated stream asset is invalid');
   }
 
   const body = await readFile(assetPath);
@@ -133,7 +160,7 @@ async function serveAsset(
     headers: {
       'Cache-Control': 'private, max-age=31536000, immutable',
       'Content-Length': String(body.byteLength),
-      'Content-Type': 'video/mp2t',
+      'Content-Type': contentTypeForAsset(asset),
       'X-Accel-Buffering': 'no',
       'X-Linear-Session': session.id,
     },
@@ -169,7 +196,7 @@ async function getOrCreateSession(
   sourceUrl: string,
   transcode: boolean,
 ): Promise<LinearSession> {
-  const key = `linear-v1\0${transcode ? 'transcode' : 'copy'}\0${sourceUrl}`;
+  const key = `linear-v2\0${transcode ? 'transcode' : 'copy'}\0${sourceUrl}`;
   const id = createHash('sha256').update(key).digest('hex').slice(0, 32);
   const existing = store.sessions.get(id);
 
@@ -190,6 +217,7 @@ async function getOrCreateSession(
     transcode,
     directory,
     playlistPath: path.join(directory, 'stream.m3u8'),
+    masterPlaylistPath: path.join(directory, 'master.m3u8'),
     controller: new AbortController(),
     process: null,
     startedAt: Date.now(),
@@ -198,6 +226,9 @@ async function getOrCreateSession(
     exitCode: null,
     error: null,
     stderr: '',
+    durationSeconds: null,
+    generatedSeconds: 0,
+    subtitleTrack: null,
     startPromise: Promise.resolve(),
   };
 
@@ -213,6 +244,8 @@ async function getOrCreateSession(
 async function startSession(session: LinearSession): Promise<void> {
   await rm(session.directory, { recursive: true, force: true });
   await mkdir(session.directory, { recursive: true });
+
+  session.subtitleTrack = await probePreferredSubtitle(session.sourceUrl);
 
   const response = await fetch(session.sourceUrl, {
     method: 'GET',
@@ -252,6 +285,24 @@ async function startSession(session: LinearSession): Promise<void> {
       ]
     : ['-c:v', 'copy'];
 
+  const mapArgs = ['-map', '0:v:0', '-map', '0:a:0?'];
+  if (session.subtitleTrack) {
+    mapArgs.push('-map', `0:${session.subtitleTrack.inputIndex}`);
+  }
+
+  const subtitleArgs = session.subtitleTrack
+    ? [
+        '-c:s',
+        'webvtt',
+        '-var_stream_map',
+        `v:0,a:0,s:0,sgroup:subs,sname:${hlsToken(session.subtitleTrack.name)},language:${hlsToken(session.subtitleTrack.language)}`,
+        '-master_pl_name',
+        'master.m3u8',
+        '-master_pl_publish_rate',
+        '1',
+      ]
+    : [];
+
   const args = [
     '-hide_banner',
     '-loglevel',
@@ -261,11 +312,7 @@ async function startSession(session: LinearSession): Promise<void> {
     '+genpts',
     '-i',
     'pipe:0',
-    '-map',
-    '0:v:0',
-    '-map',
-    '0:a:0?',
-    '-sn',
+    ...mapArgs,
     '-dn',
     '-map_metadata',
     '-1',
@@ -296,6 +343,7 @@ async function startSession(session: LinearSession): Promise<void> {
     'independent_segments+temp_file',
     '-hls_segment_filename',
     path.join(session.directory, 'segment-%06d.ts'),
+    ...subtitleArgs,
     session.playlistPath,
   ];
 
@@ -305,6 +353,7 @@ async function startSession(session: LinearSession): Promise<void> {
       mode: session.transcode ? 'transcode' : 'copy',
       contentType: response.headers.get('content-type'),
       contentLength: response.headers.get('content-length'),
+      subtitle: session.subtitleTrack,
       ffmpeg,
     });
   }
@@ -316,28 +365,35 @@ async function startSession(session: LinearSession): Promise<void> {
   });
   session.process = child;
 
-  child.stderr.setEncoding('utf8');
-  child.stderr.on('data', (chunk: string) => {
-    session.stderr = `${session.stderr}${chunk}`.slice(-16000);
+  const stderr = child.stderr;
+  const stdin = child.stdin;
+  if (!stderr || !stdin) {
+    child.kill('SIGKILL');
+    throw new Error('FFmpeg did not expose the required input and error streams');
+  }
+
+  stderr.setEncoding('utf8');
+  stderr.on('data', (chunk: string) => {
+    const text = String(chunk);
+    session.stderr = `${session.stderr}${text}`.slice(-16000);
+    captureLinearProgress(session);
     if (process.env.STREAM_DEBUG === '1') {
-      chunk
+      text
         .split(/\r?\n/)
         .filter(Boolean)
         .forEach((line) => console.log(`[stream-linear][ffmpeg][${session.id}] ${line}`));
     }
   });
 
-  const sourceStream = Readable.fromWeb(
-    response.body as unknown as import('stream/web').ReadableStream<Uint8Array>,
-  );
+  const sourceStream = Readable.fromWeb(response.body as any);
   sourceStream.on('error', (error) => {
     session.error = toError(error);
-    child.stdin.destroy(error);
+    stdin.destroy(error);
   });
-  child.stdin.on('error', (error) => {
+  stdin.on('error', (error) => {
     if ((error as NodeJS.ErrnoException).code !== 'EPIPE') session.error = toError(error);
   });
-  sourceStream.pipe(child.stdin);
+  sourceStream.pipe(stdin);
 
   child.once('error', (error) => {
     session.error = toError(error);
@@ -366,6 +422,155 @@ async function startSession(session: LinearSession): Promise<void> {
   });
 }
 
+async function probePreferredSubtitle(sourceUrl: string): Promise<SubtitleTrack | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  timeout.unref();
+  const ffprobe = process.env.FFPROBE_PATH || process.env.FFPROBE_BIN || 'ffprobe';
+
+  try {
+    const response = await fetch(sourceUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      headers: {
+        Accept: 'video/*,*/*;q=0.9',
+        'Accept-Encoding': 'identity',
+        'User-Agent': USER_AGENT,
+      },
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok || !response.body) return null;
+
+    const child = spawn(
+      ffprobe,
+      [
+        '-v',
+        'error',
+        '-show_entries',
+        'stream=index,codec_type,codec_name:stream_tags=language,title',
+        '-of',
+        'json',
+        'pipe:0',
+      ],
+      {
+        windowsHide: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      },
+    );
+    const stdin = child.stdin;
+    const stdout = child.stdout;
+    const stderr = child.stderr;
+    if (!stdin || !stdout || !stderr) {
+      child.kill('SIGKILL');
+      return null;
+    }
+
+    let output = '';
+    let errorOutput = '';
+    stdout.setEncoding('utf8');
+    stderr.setEncoding('utf8');
+    stdout.on('data', (chunk: string) => {
+      if (output.length < 1024 * 1024) output += String(chunk);
+    });
+    stderr.on('data', (chunk: string) => {
+      if (errorOutput.length < 64 * 1024) errorOutput += String(chunk);
+    });
+
+    const sourceStream = Readable.fromWeb(response.body as any);
+    sourceStream.on('error', () => stdin.destroy());
+    sourceStream.pipe(stdin);
+
+    const code = await new Promise<number | null>((resolve) => {
+      child.once('error', () => resolve(-1));
+      child.once('close', resolve);
+    });
+    controller.abort();
+    sourceStream.destroy();
+
+    if (code !== 0) {
+      if (process.env.STREAM_DEBUG === '1') {
+        console.warn('[stream-linear] ffprobe subtitle scan failed', {
+          code,
+          details: errorOutput.slice(-2000),
+        });
+      }
+      return null;
+    }
+
+    const parsed = JSON.parse(output) as { streams?: ProbeStream[] };
+    const candidates = (parsed.streams ?? []).filter(isTextSubtitleStream);
+    if (candidates.length === 0) return null;
+
+    const preferred =
+      candidates.find((stream) => /^(?:eng|en)$/i.test(stream.tags?.language ?? '')) ??
+      candidates[0];
+    if (!Number.isSafeInteger(preferred.index)) return null;
+
+    const language = normalizeLanguage(preferred.tags?.language);
+    return {
+      inputIndex: preferred.index!,
+      language,
+      name: subtitleDisplayName(language, preferred.tags?.title),
+    };
+  } catch (error) {
+    if (process.env.STREAM_DEBUG === '1') {
+      console.warn('[stream-linear] built-in subtitle scan unavailable:', error);
+    }
+    return null;
+  } finally {
+    clearTimeout(timeout);
+    controller.abort();
+  }
+}
+
+function isTextSubtitleStream(stream: ProbeStream): boolean {
+  if (stream.codec_type !== 'subtitle' || !Number.isSafeInteger(stream.index)) return false;
+  const codec = (stream.codec_name ?? '').toLowerCase();
+  return ![
+    'hdmv_pgs_subtitle',
+    'dvd_subtitle',
+    'dvb_subtitle',
+    'xsub',
+  ].includes(codec);
+}
+
+function normalizeLanguage(value: string | undefined): string {
+  const language = (value ?? '').trim().toLowerCase();
+  if (language === 'en') return 'eng';
+  return /^[a-z]{2,3}$/.test(language) ? language : 'und';
+}
+
+function subtitleDisplayName(language: string, title: string | undefined): string {
+  const cleanedTitle = title?.trim();
+  if (cleanedTitle) return cleanedTitle;
+  const names: Record<string, string> = {
+    eng: 'English',
+    chi: 'Chinese',
+    zho: 'Chinese',
+    ara: 'Arabic',
+    ger: 'German',
+    deu: 'German',
+    spa: 'Spanish',
+    fre: 'French',
+    fra: 'French',
+    ind: 'Indonesian',
+    ita: 'Italian',
+    may: 'Malay',
+    msa: 'Malay',
+    por: 'Portuguese',
+    rus: 'Russian',
+    tha: 'Thai',
+    vie: 'Vietnamese',
+  };
+  return names[language] ?? language.toUpperCase();
+}
+
+function hlsToken(value: string): string {
+  const token = value.replace(/[^A-Za-z0-9_-]+/g, '_').replace(/^_+|_+$/g, '');
+  return token || 'Subtitle';
+}
+
 async function waitForAsset(
   session: LinearSession,
   asset: string,
@@ -379,7 +584,7 @@ async function waitForAsset(
       const info = await stat(assetPath);
       if (info.isFile() && info.size > 0) return;
     } catch {
-      // The sequential encoder has not published this asset yet.
+      // FFmpeg has not published this asset yet.
     }
 
     if (session.error) throw session.error;
@@ -395,15 +600,125 @@ async function waitForAsset(
   );
 }
 
+function clockToSeconds(hours: string, minutes: string, seconds: string): number {
+  return Number(hours) * 3600 + Number(minutes) * 60 + Number(seconds);
+}
+
+function captureLinearProgress(session: LinearSession): void {
+  if (session.durationSeconds === null) {
+    const durationMatch = /Duration:\s*(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/.exec(
+      session.stderr,
+    );
+    if (durationMatch) {
+      const duration = clockToSeconds(durationMatch[1], durationMatch[2], durationMatch[3]);
+      if (Number.isFinite(duration) && duration > 0) session.durationSeconds = duration;
+    }
+  }
+
+  const progressPattern = /time=(\d{2}):(\d{2}):(\d{2}(?:\.\d+)?)/g;
+  let progressMatch: RegExpExecArray | null = null;
+  let latestProgress: RegExpExecArray | null = null;
+  while ((progressMatch = progressPattern.exec(session.stderr)) !== null) {
+    latestProgress = progressMatch;
+  }
+  if (latestProgress) {
+    const generated = clockToSeconds(
+      latestProgress[1],
+      latestProgress[2],
+      latestProgress[3],
+    );
+    if (Number.isFinite(generated) && generated > session.generatedSeconds) {
+      session.generatedSeconds = generated;
+    }
+  }
+}
+
+function parsePublishedSegmentDurations(source: string): Map<number, number> {
+  const durations = new Map<number, number>();
+  let pendingDuration: number | null = null;
+
+  for (const rawLine of source.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    const durationMatch = /^#EXTINF:([0-9.]+)/.exec(line);
+    if (durationMatch) {
+      const value = Number(durationMatch[1]);
+      pendingDuration = Number.isFinite(value) && value > 0 ? value : null;
+      continue;
+    }
+
+    const segmentMatch = /^segment-(\d{6})\.ts$/.exec(line);
+    if (segmentMatch) {
+      const index = Number(segmentMatch[1]);
+      if (Number.isSafeInteger(index) && pendingDuration !== null) {
+        durations.set(index, pendingDuration);
+      }
+      pendingDuration = null;
+    }
+  }
+
+  return durations;
+}
+
+function createFullTimelinePlaylist(session: LinearSession, source: string): string {
+  const duration = session.durationSeconds;
+  if (!(duration && Number.isFinite(duration) && duration > 0)) {
+    return rewritePlaylistAssets(session, source);
+  }
+
+  const publishedDurations = parsePublishedSegmentDurations(source);
+  const segmentCount = Math.max(1, Math.ceil(duration / SEGMENT_DURATION_SECONDS));
+  let publishedMaximum = 0;
+  publishedDurations.forEach((value) => {
+    publishedMaximum = Math.max(publishedMaximum, value);
+  });
+  const targetDuration = Math.max(
+    SEGMENT_DURATION_SECONDS,
+    Math.ceil(publishedMaximum || SEGMENT_DURATION_SECONDS),
+  );
+  const lines = [
+    '#EXTM3U',
+    '#EXT-X-VERSION:3',
+    `#EXT-X-TARGETDURATION:${targetDuration}`,
+    '#EXT-X-MEDIA-SEQUENCE:0',
+    '#EXT-X-PLAYLIST-TYPE:VOD',
+    '#EXT-X-INDEPENDENT-SEGMENTS',
+  ];
+
+  for (let index = 0; index < segmentCount; index += 1) {
+    const remaining = duration - index * SEGMENT_DURATION_SECONDS;
+    const fallbackDuration = Math.max(
+      0.001,
+      Math.min(SEGMENT_DURATION_SECONDS, remaining),
+    );
+    const segmentDuration = publishedDurations.get(index) ?? fallbackDuration;
+    const asset = `segment-${String(index).padStart(6, '0')}.ts`;
+    lines.push(`#EXTINF:${segmentDuration.toFixed(6)},`);
+    lines.push(assetUrl(session, asset));
+  }
+
+  lines.push('#EXT-X-ENDLIST');
+  return `${lines.join('\n')}\n`;
+}
+
 async function playlistResponse(session: LinearSession): Promise<NextResponse> {
   const source = await readFile(session.playlistPath, 'utf8');
-  const rewritten = source.replace(
-    /^(segment-\d{6}\.ts)$/gm,
-    (_match, asset: string) =>
-      `/api/playback-linear?session=${encodeURIComponent(session.id)}&asset=${encodeURIComponent(asset)}`,
-  );
+  const playlist = createFullTimelinePlaylist(session, source);
+  return playlistResponseWithHeaders(session, playlist);
+}
 
-  return new NextResponse(rewritten, {
+async function genericPlaylistResponse(
+  session: LinearSession,
+  asset: string,
+): Promise<NextResponse> {
+  const source = await readFile(safeAssetPath(session, asset), 'utf8');
+  return playlistResponseWithHeaders(session, rewritePlaylistAssets(session, source));
+}
+
+function playlistResponseWithHeaders(
+  session: LinearSession,
+  playlist: string,
+): NextResponse {
+  return new NextResponse(playlist, {
     status: 200,
     headers: {
       'Cache-Control': 'private, no-store, max-age=0',
@@ -411,8 +726,45 @@ async function playlistResponse(session: LinearSession): Promise<NextResponse> {
       'X-Accel-Buffering': 'no',
       'X-Linear-Mode': session.transcode ? 'transcode' : 'copy',
       'X-Linear-Session': session.id,
+      'X-Linear-Duration': String(session.durationSeconds ?? 0),
+      'X-Linear-Generated': String(session.generatedSeconds),
+      'X-Linear-Subtitle': session.subtitleTrack?.name ?? '',
     },
   });
+}
+
+function rewritePlaylistAssets(session: LinearSession, source: string): string {
+  const withAttributeUris = source.replace(/URI="([^"]+)"/g, (_match, asset: string) => {
+    return `URI="${rewriteGeneratedAsset(session, asset)}"`;
+  });
+
+  return withAttributeUris
+    .split(/\r?\n/)
+    .map((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) return line;
+      return rewriteGeneratedAsset(session, trimmed);
+    })
+    .join('\n');
+}
+
+function rewriteGeneratedAsset(session: LinearSession, value: string): string {
+  if (/^(?:https?:|data:|blob:|\/api\/)/i.test(value)) return value;
+  const asset = value.replace(/^\.\//, '');
+  if (!ASSET_PATTERN.test(asset)) {
+    throw new HttpError(502, `FFmpeg generated an unsafe playlist asset: ${value}`);
+  }
+  return assetUrl(session, asset);
+}
+
+function assetUrl(session: LinearSession, asset: string): string {
+  return `/api/playback-linear?session=${encodeURIComponent(session.id)}&asset=${encodeURIComponent(asset)}`;
+}
+
+function contentTypeForAsset(asset: string): string {
+  if (asset.endsWith('.vtt')) return 'text/vtt; charset=utf-8';
+  if (asset.endsWith('.m3u8')) return 'application/vnd.apple.mpegurl; charset=utf-8';
+  return 'video/mp2t';
 }
 
 function safeAssetPath(session: LinearSession, asset: string): string {
