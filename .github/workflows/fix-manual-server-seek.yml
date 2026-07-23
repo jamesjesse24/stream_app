@@ -1,0 +1,262 @@
+name: Fix manual server seek selection
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/fix-manual-server-seek.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch-build-commit:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Patch stable manual server selection
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+
+          path = Path('src/components/EnhancedVideoPlayer.tsx')
+          source = path.read_text(encoding='utf-8')
+
+          def replace_once(old: str, new: str, name: str) -> None:
+              global source
+              if new in source:
+                  return
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f'Expected exactly one {name} block, found {count}')
+              source = source.replace(old, new, 1)
+
+          replace_once(
+              '  const failedSourcesRef = useRef(new Set<number>());',
+              '''  const failedSourcesRef = useRef(new Set<string>());
+  const selectedSourceUrlRef = useRef(videoLink.url);
+  const manualSourceSelectionRef = useRef(false);
+  const manualSeekRecoveryRef = useRef(new Map<string, number>());''',
+              'source identity refs',
+          )
+
+          replace_once(
+              '''  useEffect(() => {
+    if (activeSourceIndex >= availableSources.length) setActiveSourceIndex(0);
+  }, [activeSourceIndex, availableSources.length]);''',
+              '''  useEffect(() => {
+    if (availableSources.length === 0) return;
+
+    const selectedUrl = selectedSourceUrlRef.current;
+    const selectedIndex = availableSources.findIndex(
+      (source) => source.url === selectedUrl,
+    );
+    if (selectedIndex >= 0) {
+      if (selectedIndex !== activeSourceIndex) setActiveSourceIndex(selectedIndex);
+      return;
+    }
+
+    // Source refreshes may reorder or replace entries. Keep selection bound to
+    // the exact URL rather than allowing the same numeric index to point at a
+    // different server.
+    selectedSourceUrlRef.current = availableSources[0].url;
+    manualSourceSelectionRef.current = false;
+    manualSeekRecoveryRef.current.clear();
+    setActiveSourceIndex(0);
+  }, [activeSourceIndex, availableSources]);
+
+  useEffect(() => {
+    selectedSourceUrlRef.current = videoLink.url;
+    manualSourceSelectionRef.current = false;
+    manualSeekRecoveryRef.current.clear();
+    failedSourcesRef.current.clear();
+    setActiveSourceIndex(0);
+  }, [contentId, videoLink.url]);''',
+              'stable source reconciliation',
+          )
+
+          replace_once(
+              '''  const switchSource = useCallback(
+    (index: number) => {
+      if (index < 0 || index >= availableSources.length) return;
+      persistPlaybackPosition(true);
+      setGooglePlaybackOverride(null);
+      const video = videoRef.current;
+      if (video) {
+        resumeTimeRef.current = video.currentTime;
+        shouldResumePlayingRef.current = !video.paused;
+      }
+      failedSourcesRef.current.delete(index);
+      setErrorMessage('');
+      setStatus('preparing');
+      setSettingsOpen(false);
+      if (index === activeSourceIndex) setReloadToken((value) => value + 1);
+      else setActiveSourceIndex(index);
+    },
+    [activeSourceIndex, availableSources.length, persistPlaybackPosition],
+  );''',
+              '''  const switchSource = useCallback(
+    (index: number) => {
+      if (index < 0 || index >= availableSources.length) return;
+      const selectedSource = availableSources[index];
+      persistPlaybackPosition(true);
+      setGooglePlaybackOverride(null);
+      const video = videoRef.current;
+      if (video) {
+        resumeTimeRef.current = video.currentTime;
+        shouldResumePlayingRef.current = !video.paused;
+      }
+
+      // A server selected by the viewer remains pinned until the viewer chooses
+      // another server. Transient seek failures must not silently jump to the
+      // first card in the list.
+      selectedSourceUrlRef.current = selectedSource.url;
+      manualSourceSelectionRef.current = true;
+      manualSeekRecoveryRef.current.delete(selectedSource.url);
+      failedSourcesRef.current.delete(selectedSource.url);
+      setErrorMessage('');
+      setStatus('preparing');
+      setSettingsOpen(false);
+      if (index === activeSourceIndex) setReloadToken((value) => value + 1);
+      else setActiveSourceIndex(index);
+    },
+    [activeSourceIndex, availableSources, persistPlaybackPosition],
+  );''',
+              'manual source switch',
+          )
+
+          replace_once(
+              '''  const failCurrentSource = useCallback(
+    (message: string) => {
+      pendingSeekRef.current = null;
+      setSeekPreview(null);
+      persistPlaybackPosition(true);
+      failedSourcesRef.current.add(activeSourceIndex);
+      const nextIndex = availableSourcesRef.current.findIndex(
+        (_, index) => !failedSourcesRef.current.has(index),
+      );
+
+      if (nextIndex >= 0) {
+        const video = videoRef.current;
+        if (video) {
+          resumeTimeRef.current = video.currentTime;
+          shouldResumePlayingRef.current = !video.paused || autoPlay;
+        }
+        setStatus('preparing');
+        setGooglePlaybackOverride(null);
+        setActiveSourceIndex(nextIndex);
+        return;
+      }
+
+      setStatus('error');
+      setErrorMessage(message);
+      setIsPlaying(false);
+      onError?.(message);
+    },
+    [activeSourceIndex, autoPlay, onError, persistPlaybackPosition],
+  );''',
+              '''  const failCurrentSource = useCallback(
+    (message: string) => {
+      const video = videoRef.current;
+      const activeUrl =
+        activePlaybackSource?.url ||
+        availableSourcesRef.current[activeSourceIndex]?.url ||
+        '';
+      const requestedPosition =
+        pendingSeekRef.current ??
+        (video && Number.isFinite(video.currentTime) ? video.currentTime : 0);
+      const shouldContinuePlaying = video
+        ? !video.paused || autoPlay
+        : shouldResumePlayingRef.current || autoPlay;
+
+      pendingSeekRef.current = null;
+      setSeekPreview(null);
+      persistPlaybackPosition(true);
+
+      const manuallyPinned =
+        Boolean(activeUrl) &&
+        manualSourceSelectionRef.current &&
+        selectedSourceUrlRef.current === activeUrl;
+
+      if (manuallyPinned) {
+        const attempts = manualSeekRecoveryRef.current.get(activeUrl) ?? 0;
+        if (requestedPosition > 0 && attempts < 2) {
+          manualSeekRecoveryRef.current.set(activeUrl, attempts + 1);
+          resumeTimeRef.current = requestedPosition;
+          shouldResumePlayingRef.current = shouldContinuePlaying;
+          setErrorMessage('');
+          setStatus('preparing');
+          setGooglePlaybackOverride(null);
+          setReloadToken((value) => value + 1);
+          console.warn(
+            `Selected server seek failed; retrying the same server (${attempts + 1}/2):`,
+            message,
+          );
+          return;
+        }
+
+        // Keep the selected card active. Showing an explicit error is preferable
+        // to secretly replacing the server chosen by the viewer.
+        setStatus('error');
+        setErrorMessage(message);
+        setIsPlaying(false);
+        onError?.(message);
+        return;
+      }
+
+      if (activeUrl) failedSourcesRef.current.add(activeUrl);
+      const nextIndex = availableSourcesRef.current.findIndex(
+        (source) => !failedSourcesRef.current.has(source.url),
+      );
+
+      if (nextIndex >= 0) {
+        const nextSource = availableSourcesRef.current[nextIndex];
+        if (video) {
+          resumeTimeRef.current = video.currentTime;
+          shouldResumePlayingRef.current = !video.paused || autoPlay;
+        }
+        selectedSourceUrlRef.current = nextSource.url;
+        manualSourceSelectionRef.current = false;
+        setStatus('preparing');
+        setGooglePlaybackOverride(null);
+        setActiveSourceIndex(nextIndex);
+        return;
+      }
+
+      setStatus('error');
+      setErrorMessage(message);
+      setIsPlaying(false);
+      onError?.(message);
+    },
+    [
+      activePlaybackSource?.url,
+      activeSourceIndex,
+      autoPlay,
+      onError,
+      persistPlaybackPosition,
+    ],
+  );''',
+              'source failure handling',
+          )
+
+          path.write_text(source, encoding='utf-8')
+          '@ | python -
+      - run: npm ci
+      - run: npm run build
+      - name: Commit verified fix and remove workflow
+        shell: pwsh
+        run: |
+          Remove-Item ".github/workflows/fix-manual-server-seek.yml" -Force
+          git config user.name "James"
+          git config user.email "257743569+jamesjesse24@users.noreply.github.com"
+          git add src/components/EnhancedVideoPlayer.tsx .github/workflows/fix-manual-server-seek.yml
+          git commit -m "Keep manually selected server during seek"
+          git push origin HEAD:main
