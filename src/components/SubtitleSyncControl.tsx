@@ -38,6 +38,7 @@ export function SubtitleSyncControl() {
   const originalCueTimingRef = useRef(
     new WeakMap<TextTrackCue, CueTiming>(),
   );
+  const hasRenderedOnceRef = useRef(false);
   const [delaySeconds, setDelaySeconds] = useState(0);
   const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
 
@@ -46,6 +47,11 @@ export function SubtitleSyncControl() {
   }, []);
 
   useEffect(() => {
+    if (!hasRenderedOnceRef.current) {
+      hasRenderedOnceRef.current = true;
+      return;
+    }
+
     try {
       localStorage.setItem(STORAGE_KEY, String(delaySeconds));
     } catch {
