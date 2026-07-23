@@ -7,6 +7,10 @@ const {
   patchStreamStabilityPlayer,
   patchStreamStabilityRoute,
 } = require('./patch-stream-stability.cjs');
+const {
+  patchStreamLifecyclePlayer,
+  patchStreamLifecycleRoute,
+} = require('./patch-stream-lifecycle.cjs');
 
 const root = path.resolve(__dirname, '..');
 const playerPath = path.join(root, 'src', 'components', 'EnhancedVideoPlayer.tsx');
@@ -99,7 +103,9 @@ if (!patchedPlayer.includes(autoplayReplacement)) {
 patchedPlayer = patchManualServerSelection(patchedPlayer);
 patchedPlayer = patchLinearTimelinePlayer(patchedPlayer);
 patchedPlayer = patchStreamStabilityPlayer(patchedPlayer);
-const patchedLinearRoute = patchStreamStabilityRoute(normalizedLinearRoute);
+patchedPlayer = patchStreamLifecyclePlayer(patchedPlayer);
+const stableLinearRoute = patchStreamStabilityRoute(normalizedLinearRoute);
+const patchedLinearRoute = patchStreamLifecycleRoute(stableLinearRoute);
 
 let exitCode = 1;
 
