@@ -3,10 +3,16 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { patchLinearTimelinePlayer } = require('./patch-linear-timeline.cjs');
 const { patchManualServerSelection } = require('./patch-manual-server-selection.cjs');
+const {
+  patchStreamStabilityPlayer,
+  patchStreamStabilityRoute,
+} = require('./patch-stream-stability.cjs');
 
 const root = process.cwd();
 const playerPath = path.join(root, 'src', 'components', 'EnhancedVideoPlayer.tsx');
+const linearRoutePath = path.join(root, 'app', 'api', 'playback-linear', 'route.ts');
 const originalPlayer = fs.readFileSync(playerPath, 'utf8');
+const originalLinearRoute = fs.readFileSync(linearRoutePath, 'utf8');
 
 function replaceRequired(source, name, pattern, replacement) {
   if (source.includes(replacement)) return source;
@@ -86,7 +92,11 @@ if (!patchedPlayer.includes(autoplayReplacement)) {
 
 patchedPlayer = patchManualServerSelection(patchedPlayer);
 patchedPlayer = patchLinearTimelinePlayer(patchedPlayer);
+patchedPlayer = patchStreamStabilityPlayer(patchedPlayer);
+const patchedLinearRoute = patchStreamStabilityRoute(originalLinearRoute);
+
 fs.writeFileSync(playerPath, patchedPlayer, 'utf8');
+fs.writeFileSync(linearRoutePath, patchedLinearRoute, 'utf8');
 
 const nextBin = require.resolve('next/dist/bin/next');
 const args = [nextBin, 'dev', ...process.argv.slice(2)];
@@ -99,7 +109,8 @@ const env = {
 console.log('[stream-debug] Development diagnostics enabled.');
 console.log('[stream-debug] Google MKV playback uses sequential HLS without HTTP byte ranges.');
 console.log('[stream-debug] Full source duration is exposed immediately; future seeks wait for FFmpeg to generate the requested segment.');
-console.log('[stream-debug] Preferred built-in text subtitles are preserved as WebVTT HLS tracks.');
+console.log('[stream-debug] Built-in subtitle offsets are applied server-side without mutating live HLS cues.');
+console.log('[stream-debug] Duplicate FFmpeg sessions for the same media are terminated automatically.');
 console.log('[stream-debug] Manually selected servers remain pinned during seek recovery.');
 console.log('[stream-debug] Stream requests, API responses, FFmpeg output, media events, and errors will appear here.');
 
@@ -118,6 +129,7 @@ function restoreSources() {
   restored = true;
   try {
     fs.writeFileSync(playerPath, originalPlayer, 'utf8');
+    fs.writeFileSync(linearRoutePath, originalLinearRoute, 'utf8');
   } catch (error) {
     console.error('[stream-debug] Could not restore patched source files:', error);
   }
