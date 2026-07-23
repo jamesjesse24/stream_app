@@ -7,6 +7,10 @@ const {
   patchStreamStabilityPlayer,
   patchStreamStabilityRoute,
 } = require('./patch-stream-stability.cjs');
+const {
+  patchStreamLifecyclePlayer,
+  patchStreamLifecycleRoute,
+} = require('./patch-stream-lifecycle.cjs');
 
 const root = process.cwd();
 const playerPath = path.join(root, 'src', 'components', 'EnhancedVideoPlayer.tsx');
@@ -98,7 +102,9 @@ if (!patchedPlayer.includes(autoplayReplacement)) {
 patchedPlayer = patchManualServerSelection(patchedPlayer);
 patchedPlayer = patchLinearTimelinePlayer(patchedPlayer);
 patchedPlayer = patchStreamStabilityPlayer(patchedPlayer);
-const patchedLinearRoute = patchStreamStabilityRoute(normalizedLinearRoute);
+patchedPlayer = patchStreamLifecyclePlayer(patchedPlayer);
+const stableLinearRoute = patchStreamStabilityRoute(normalizedLinearRoute);
+const patchedLinearRoute = patchStreamLifecycleRoute(stableLinearRoute);
 
 fs.writeFileSync(playerPath, patchedPlayer, 'utf8');
 fs.writeFileSync(linearRoutePath, patchedLinearRoute, 'utf8');
@@ -116,6 +122,7 @@ console.log('[stream-debug] Google MKV playback uses sequential HLS without HTTP
 console.log('[stream-debug] Full source duration is exposed immediately; future seeks wait for FFmpeg to generate the requested segment.');
 console.log('[stream-debug] Built-in subtitle offsets are applied server-side without mutating live HLS cues.');
 console.log('[stream-debug] Duplicate FFmpeg sessions for the same media are terminated automatically.');
+console.log('[stream-debug] Viewer leases stop FFmpeg after the final player leaves.');
 console.log('[stream-debug] Manually selected servers remain pinned during seek recovery.');
 console.log('[stream-debug] Stream requests, API responses, FFmpeg output, media events, and errors will appear here.');
 
