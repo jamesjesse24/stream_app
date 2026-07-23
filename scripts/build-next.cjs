@@ -3,10 +3,16 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { patchLinearTimelinePlayer } = require('./patch-linear-timeline.cjs');
 const { patchManualServerSelection } = require('./patch-manual-server-selection.cjs');
+const {
+  patchStreamStabilityPlayer,
+  patchStreamStabilityRoute,
+} = require('./patch-stream-stability.cjs');
 
 const root = path.resolve(__dirname, '..');
 const playerPath = path.join(root, 'src', 'components', 'EnhancedVideoPlayer.tsx');
+const linearRoutePath = path.join(root, 'app', 'api', 'playback-linear', 'route.ts');
 const originalPlayer = fs.readFileSync(playerPath, 'utf8');
+const originalLinearRoute = fs.readFileSync(linearRoutePath, 'utf8');
 
 function replaceRequired(source, name, pattern, replacement) {
   if (source.includes(replacement)) return source;
@@ -87,11 +93,16 @@ if (!patchedPlayer.includes(autoplayReplacement)) {
 
 patchedPlayer = patchManualServerSelection(patchedPlayer);
 patchedPlayer = patchLinearTimelinePlayer(patchedPlayer);
+patchedPlayer = patchStreamStabilityPlayer(patchedPlayer);
+const patchedLinearRoute = patchStreamStabilityRoute(originalLinearRoute);
 
 let exitCode = 1;
 
 try {
   if (patchedPlayer !== originalPlayer) fs.writeFileSync(playerPath, patchedPlayer, 'utf8');
+  if (patchedLinearRoute !== originalLinearRoute) {
+    fs.writeFileSync(linearRoutePath, patchedLinearRoute, 'utf8');
+  }
 
   const nextBin = require.resolve('next/dist/bin/next');
   const result = spawnSync(process.execPath, [nextBin, 'build'], {
@@ -107,6 +118,9 @@ try {
   exitCode = 1;
 } finally {
   if (patchedPlayer !== originalPlayer) fs.writeFileSync(playerPath, originalPlayer, 'utf8');
+  if (patchedLinearRoute !== originalLinearRoute) {
+    fs.writeFileSync(linearRoutePath, originalLinearRoute, 'utf8');
+  }
 }
 
 process.exit(exitCode);
