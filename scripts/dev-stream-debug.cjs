@@ -11,6 +11,9 @@ const {
   patchStreamLifecyclePlayer,
   patchStreamLifecycleRoute,
 } = require('./patch-stream-lifecycle.cjs');
+const {
+  patchStreamLifecycleCompatibility,
+} = require('./patch-stream-lifecycle-compat.cjs');
 
 const root = process.cwd();
 const playerPath = path.join(root, 'src', 'components', 'EnhancedVideoPlayer.tsx');
@@ -104,7 +107,8 @@ patchedPlayer = patchLinearTimelinePlayer(patchedPlayer);
 patchedPlayer = patchStreamStabilityPlayer(patchedPlayer);
 patchedPlayer = patchStreamLifecyclePlayer(patchedPlayer);
 const stableLinearRoute = patchStreamStabilityRoute(normalizedLinearRoute);
-const patchedLinearRoute = patchStreamLifecycleRoute(stableLinearRoute);
+const lifecycleLinearRoute = patchStreamLifecycleRoute(stableLinearRoute);
+const patchedLinearRoute = patchStreamLifecycleCompatibility(lifecycleLinearRoute);
 
 fs.writeFileSync(playerPath, patchedPlayer, 'utf8');
 fs.writeFileSync(linearRoutePath, patchedLinearRoute, 'utf8');
