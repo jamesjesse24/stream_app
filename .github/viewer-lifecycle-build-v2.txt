@@ -1,0 +1,76 @@
+Exit code: 0
+
+> uhd-movies-nextjs@0.1.0 build
+> node scripts/build-next.cjs
+
+⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+   ▲ Next.js 14.0.4
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Skipping linting
+   Checking validity of types ...
+   Collecting page data ...
+   Generating static pages (0/24) ...
+
+   Generating static pages (6/24) 
+
+   Generating static pages (12/24) 
+
+   Generating static pages (18/24) 
+ ⚠ Entire page /search deopted into client-side rendering. https://nextjs.org/docs/messages/deopted-into-client-rendering /search
+
+ ✓ Generating static pages (24/24) 
+   Finalizing page optimization ...
+   Collecting build traces ...
+
+Route (app)                                    Size     First Load JS
+┌ ○ /                                          4.02 kB         101 kB
+├ ○ /_not-found                                869 B          82.8 kB
+├ λ /anime/[slug]                              4.19 kB         101 kB
+├ λ /anime/[slug]/episode/[episodeSlug]/watch  172 kB          254 kB
+├ λ /api/anime                                 0 B                0 B
+├ λ /api/check-link                            0 B                0 B
+├ λ /api/debug-stream                          0 B                0 B
+├ λ /api/google-video                          0 B                0 B
+├ λ /api/media-info                            0 B                0 B
+├ λ /api/multi-source                          0 B                0 B
+├ λ /api/playback                              0 B                0 B
+├ λ /api/playback-linear                       0 B                0 B
+├ λ /api/playback-vod                          0 B                0 B
+├ λ /api/stream                                0 B                0 B
+├ λ /api/stream-debug                          0 B                0 B
+├ λ /api/stream-diagnose                       0 B                0 B
+├ λ /api/stream-direct                         0 B                0 B
+├ λ /api/stream-info                           0 B                0 B
+├ λ /api/stream-mkv                            0 B                0 B
+├ λ /api/stream/[...path]                      0 B                0 B
+├ λ /api/subtitles                             0 B                0 B
+├ λ /api/subtitles/download                    0 B                0 B
+├ λ /api/subtitles/search                      0 B                0 B
+├ λ /api/supjav                                0 B                0 B
+├ λ /api/supjav/set-session                    0 B                0 B
+├ λ /api/test-google-drive                     0 B                0 B
+├ λ /api/test-stream                           0 B                0 B
+├ λ /api/test-transcode                        0 B                0 B
+├ λ /api/video-info                            0 B                0 B
+├ λ /api/video-metadata                        0 B                0 B
+├ ○ /debug-stream                              6.12 kB          96 kB
+├ ○ /multi-source-demo                         3.62 kB        93.5 kB
+├ ○ /search                                    3.85 kB         100 kB
+└ ○ /test-mkv                                  7.83 kB        97.7 kB
++ First Load JS shared by all                  81.9 kB
+  ├ chunks/938-c47d5d052c345d8b.js             26.7 kB
+  ├ chunks/fd9d1056-7bd0b462696cda25.js        53.3 kB
+  ├ chunks/main-app-5c8122aacdcd1da5.js        220 B
+  └ chunks/webpack-04bf686e2100a34c.js         1.74 kB
+
+
+○  (Static)   prerendered as static content
+λ  (Dynamic)  server-rendered on demand using Node.js
+
