@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { patchLinearTimelinePlayer } = require('./patch-linear-timeline.cjs');
+const { patchManualServerSelection } = require('./patch-manual-server-selection.cjs');
 
 const root = path.resolve(__dirname, '..');
 const playerPath = path.join(root, 'src', 'components', 'EnhancedVideoPlayer.tsx');
@@ -84,6 +85,7 @@ if (!patchedPlayer.includes(autoplayReplacement)) {
   );
 }
 
+patchedPlayer = patchManualServerSelection(patchedPlayer);
 patchedPlayer = patchLinearTimelinePlayer(patchedPlayer);
 
 let exitCode = 1;
