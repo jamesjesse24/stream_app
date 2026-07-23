@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 const STORAGE_KEY = 'uhd-player-subtitle-delay:v1';
+const EVENT_NAME = 'uhd:subtitle-delay-change';
 const MIN_DELAY_SECONDS = -5;
 const MAX_DELAY_SECONDS = 5;
 const STEP_SECONDS = 0.05;
@@ -34,29 +35,34 @@ function readSavedDelay(): number {
   }
 }
 
+function dispatchDelay(value: number): void {
+  window.dispatchEvent(new CustomEvent<number>(EVENT_NAME, { detail: value }));
+}
+
 export function SubtitleSyncControl() {
-  const originalCueTimingRef = useRef(
+  const originalUploadedCueTimingRef = useRef(
     new WeakMap<TextTrackCue, CueTiming>(),
   );
-  const hasRenderedOnceRef = useRef(false);
+  const hydratedRef = useRef(false);
   const [delaySeconds, setDelaySeconds] = useState(0);
   const [portalHost, setPortalHost] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
-    setDelaySeconds(readSavedDelay());
+    const saved = readSavedDelay();
+    hydratedRef.current = true;
+    setDelaySeconds(saved);
+    dispatchDelay(saved);
   }, []);
 
   useEffect(() => {
-    if (!hasRenderedOnceRef.current) {
-      hasRenderedOnceRef.current = true;
-      return;
-    }
+    if (!hydratedRef.current) return;
 
     try {
       localStorage.setItem(STORAGE_KEY, String(delaySeconds));
     } catch {
       // Subtitle synchronization must keep working without local storage.
     }
+    dispatchDelay(delaySeconds);
   }, [delaySeconds]);
 
   useEffect(() => {
@@ -95,29 +101,31 @@ export function SubtitleSyncControl() {
   }, []);
 
   useEffect(() => {
-    const applyDelay = () => {
-      document.querySelectorAll<HTMLVideoElement>('video').forEach((video) => {
-        for (let trackIndex = 0; trackIndex < video.textTracks.length; trackIndex += 1) {
-          const track = video.textTracks[trackIndex];
-          const cues = track?.cues;
-          if (!cues) continue;
+    // Built-in HLS subtitles are shifted by the playback API. Only uploaded or
+    // online subtitle files are adjusted in the browser because their cues are
+    // static and are not continuously replaced by hls.js.
+    const applyUploadedDelay = () => {
+      document
+        .querySelectorAll<HTMLTrackElement>('track[data-uhd-uploaded-subtitle="true"]')
+        .forEach((trackElement) => {
+          const cues = trackElement.track?.cues;
+          if (!cues) return;
 
           for (let cueIndex = 0; cueIndex < cues.length; cueIndex += 1) {
             const cue = cues[cueIndex];
             if (!cue) continue;
 
-            let original = originalCueTimingRef.current.get(cue);
+            let original = originalUploadedCueTimingRef.current.get(cue);
             if (!original) {
               original = {
                 startTime: cue.startTime,
                 endTime: cue.endTime,
               };
-              originalCueTimingRef.current.set(cue, original);
+              originalUploadedCueTimingRef.current.set(cue, original);
             }
 
             const startTime = Math.max(0, original.startTime + delaySeconds);
             const endTime = Math.max(startTime + 0.01, original.endTime + delaySeconds);
-
             try {
               cue.startTime = startTime;
               cue.endTime = endTime;
@@ -125,12 +133,11 @@ export function SubtitleSyncControl() {
               // Some browser subtitle implementations expose immutable cues.
             }
           }
-        }
-      });
+        });
     };
 
-    applyDelay();
-    const timer = window.setInterval(applyDelay, 250);
+    applyUploadedDelay();
+    const timer = window.setInterval(applyUploadedDelay, 500);
     return () => window.clearInterval(timer);
   }, [delaySeconds]);
 
