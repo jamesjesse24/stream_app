@@ -1,6 +1,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
+const {
+  patchLinearTimelinePlayer,
+  patchLinearTimelineRoute,
+} = require('./patch-linear-timeline.cjs');
 
 const root = process.cwd();
 const playerPath = path.join(root, 'src', 'components', 'EnhancedVideoPlayer.tsx');
@@ -84,7 +88,9 @@ if (!patchedPlayer.includes(autoplayReplacement)) {
   );
 }
 
-const patchedLinearRoute = originalLinearRoute
+patchedPlayer = patchLinearTimelinePlayer(patchedPlayer);
+
+let patchedLinearRoute = originalLinearRoute
   .replace(
     "import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';",
     "import { spawn, type ChildProcess } from 'child_process';",
@@ -97,6 +103,7 @@ const patchedLinearRoute = originalLinearRoute
     "response.body as unknown as import('stream/web').ReadableStream<Uint8Array>",
     'response.body as any',
   );
+patchedLinearRoute = patchLinearTimelineRoute(patchedLinearRoute);
 
 fs.writeFileSync(playerPath, patchedPlayer, 'utf8');
 fs.writeFileSync(linearRoutePath, patchedLinearRoute, 'utf8');
@@ -111,6 +118,7 @@ const env = {
 
 console.log('[stream-debug] Development diagnostics enabled.');
 console.log('[stream-debug] Google MKV playback uses sequential HLS without HTTP byte ranges.');
+console.log('[stream-debug] Full source duration is exposed immediately; future seeks wait for FFmpeg to generate the requested segment.');
 console.log('[stream-debug] Stream requests, API responses, FFmpeg output, media events, and errors will appear here.');
 
 const child = spawn(process.execPath, args, {
