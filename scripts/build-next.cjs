@@ -1,16 +1,11 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const {
-  patchLinearTimelinePlayer,
-  patchLinearTimelineRoute,
-} = require('./patch-linear-timeline.cjs');
+const { patchLinearTimelinePlayer } = require('./patch-linear-timeline.cjs');
 
 const root = path.resolve(__dirname, '..');
 const playerPath = path.join(root, 'src', 'components', 'EnhancedVideoPlayer.tsx');
-const linearRoutePath = path.join(root, 'app', 'api', 'playback-linear', 'route.ts');
 const originalPlayer = fs.readFileSync(playerPath, 'utf8');
-const originalLinearRoute = fs.readFileSync(linearRoutePath, 'utf8');
 
 function replaceRequired(source, name, pattern, replacement) {
   if (source.includes(replacement)) return source;
@@ -91,28 +86,10 @@ if (!patchedPlayer.includes(autoplayReplacement)) {
 
 patchedPlayer = patchLinearTimelinePlayer(patchedPlayer);
 
-let patchedLinearRoute = originalLinearRoute
-  .replace(
-    "import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';",
-    "import { spawn, type ChildProcess } from 'child_process';",
-  )
-  .replace(
-    'process: ChildProcessWithoutNullStreams | null;',
-    'process: ChildProcess | null;',
-  )
-  .replace(
-    "response.body as unknown as import('stream/web').ReadableStream<Uint8Array>",
-    'response.body as any',
-  );
-patchedLinearRoute = patchLinearTimelineRoute(patchedLinearRoute);
-
 let exitCode = 1;
 
 try {
   if (patchedPlayer !== originalPlayer) fs.writeFileSync(playerPath, patchedPlayer, 'utf8');
-  if (patchedLinearRoute !== originalLinearRoute) {
-    fs.writeFileSync(linearRoutePath, patchedLinearRoute, 'utf8');
-  }
 
   const nextBin = require.resolve('next/dist/bin/next');
   const result = spawnSync(process.execPath, [nextBin, 'build'], {
@@ -128,9 +105,6 @@ try {
   exitCode = 1;
 } finally {
   if (patchedPlayer !== originalPlayer) fs.writeFileSync(playerPath, originalPlayer, 'utf8');
-  if (patchedLinearRoute !== originalLinearRoute) {
-    fs.writeFileSync(linearRoutePath, originalLinearRoute, 'utf8');
-  }
 }
 
 process.exit(exitCode);
