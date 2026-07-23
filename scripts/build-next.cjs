@@ -4,7 +4,9 @@ const { spawnSync } = require('node:child_process');
 
 const root = path.resolve(__dirname, '..');
 const playerPath = path.join(root, 'src', 'components', 'EnhancedVideoPlayer.tsx');
-const original = fs.readFileSync(playerPath, 'utf8');
+const linearRoutePath = path.join(root, 'app', 'api', 'playback-linear', 'route.ts');
+const originalPlayer = fs.readFileSync(playerPath, 'utf8');
+const originalLinearRoute = fs.readFileSync(linearRoutePath, 'utf8');
 
 function replaceRequired(source, name, pattern, replacement) {
   if (source.includes(replacement)) return source;
@@ -16,7 +18,7 @@ function replaceRequired(source, name, pattern, replacement) {
   return patched;
 }
 
-let patched = original;
+let patchedPlayer = originalPlayer;
 
 const originalModePattern = /  const activeGooglePlaybackMode: GooglePlaybackMode =\r?\n    googlePlaybackOverride\?\.sourceUrl === activePlaybackSource\?\.url\r?\n      \? googlePlaybackOverride\.mode\r?\n      : 'direct';/;
 const directModePattern = /  const activeGooglePlaybackMode: GooglePlaybackMode =\r?\n    googlePlaybackOverride &&\r?\n    googlePlaybackOverride\.sourceUrl === activePlaybackSource\?\.url\r?\n      \? googlePlaybackOverride\.mode\r?\n      : 'direct';/;
@@ -28,12 +30,12 @@ const remuxModeBlock = [
   "      : 'remux';",
 ].join('\n');
 
-if (!patched.includes(remuxModeBlock)) {
-  if (originalModePattern.test(patched)) {
-    patched = patched.replace(originalModePattern, remuxModeBlock);
+if (!patchedPlayer.includes(remuxModeBlock)) {
+  if (originalModePattern.test(patchedPlayer)) {
+    patchedPlayer = patchedPlayer.replace(originalModePattern, remuxModeBlock);
   } else {
-    patched = replaceRequired(
-      patched,
+    patchedPlayer = replaceRequired(
+      patchedPlayer,
       'Google default playback mode',
       directModePattern,
       remuxModeBlock,
@@ -41,8 +43,8 @@ if (!patched.includes(remuxModeBlock)) {
   }
 }
 
-patched = replaceRequired(
-  patched,
+patchedPlayer = replaceRequired(
+  patchedPlayer,
   'Google sequential playback route',
   /url: `\/api\/playback-vod\?\$\{params\.toString\(\)\}`,/,
   'url: `/api/playback-linear?${params.toString()}`,'
@@ -74,19 +76,36 @@ const autoplayReplacement = [
   '    };',
 ].join('\n');
 
-if (!patched.includes(autoplayReplacement)) {
-  patched = replaceRequired(
-    patched,
+if (!patchedPlayer.includes(autoplayReplacement)) {
+  patchedPlayer = replaceRequired(
+    patchedPlayer,
     'muted autoplay fallback',
     autoplayPattern,
     autoplayReplacement,
   );
 }
 
+const patchedLinearRoute = originalLinearRoute
+  .replace(
+    "import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';",
+    "import { spawn, type ChildProcess } from 'child_process';",
+  )
+  .replace(
+    'process: ChildProcessWithoutNullStreams | null;',
+    'process: ChildProcess | null;',
+  )
+  .replace(
+    "response.body as unknown as import('stream/web').ReadableStream<Uint8Array>",
+    'response.body as any',
+  );
+
 let exitCode = 1;
 
 try {
-  if (patched !== original) fs.writeFileSync(playerPath, patched, 'utf8');
+  if (patchedPlayer !== originalPlayer) fs.writeFileSync(playerPath, patchedPlayer, 'utf8');
+  if (patchedLinearRoute !== originalLinearRoute) {
+    fs.writeFileSync(linearRoutePath, patchedLinearRoute, 'utf8');
+  }
 
   const nextBin = require.resolve('next/dist/bin/next');
   const result = spawnSync(process.execPath, [nextBin, 'build'], {
@@ -101,7 +120,10 @@ try {
   console.error(error);
   exitCode = 1;
 } finally {
-  if (patched !== original) fs.writeFileSync(playerPath, original, 'utf8');
+  if (patchedPlayer !== originalPlayer) fs.writeFileSync(playerPath, originalPlayer, 'utf8');
+  if (patchedLinearRoute !== originalLinearRoute) {
+    fs.writeFileSync(linearRoutePath, originalLinearRoute, 'utf8');
+  }
 }
 
 process.exit(exitCode);
