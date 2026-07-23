@@ -1,0 +1,41 @@
+name: Verify viewer lifecycle v2
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/verify-viewer-lifecycle-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  windows-build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Run and capture build
+        shell: pwsh
+        run: |
+          npm run build 2>&1 | Tee-Object "viewer-lifecycle-v2.log"
+          $code = $LASTEXITCODE
+          "Exit code: $code" | Set-Content ".github/viewer-lifecycle-build-v2.txt"
+          Get-Content "viewer-lifecycle-v2.log" -Tail 240 | Add-Content ".github/viewer-lifecycle-build-v2.txt"
+          exit 0
+      - name: Publish build result and remove workflow
+        shell: pwsh
+        run: |
+          Remove-Item ".github/workflows/verify-viewer-lifecycle-v2.yml" -Force
+          git config user.name "James"
+          git config user.email "257743569+jamesjesse24@users.noreply.github.com"
+          git add .github/viewer-lifecycle-build-v2.txt .github/workflows/verify-viewer-lifecycle-v2.yml
+          git commit -m "Capture viewer lifecycle v2 build result"
+          git push origin HEAD:main
