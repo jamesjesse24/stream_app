@@ -7,8 +7,59 @@ function replaceRequired(source, name, pattern, replacement) {
   return patched;
 }
 
-function patchLinearTimelineRoute(source) {
+function patchSubtitleCompatibility(source) {
   let patched = source;
+
+  const supportedVariantMap =
+    '`v:0,a:0,s:0,sgroup:subs,language:${hlsToken(session.subtitleTrack.language)}`';
+
+  if (!patched.includes(supportedVariantMap)) {
+    patched = replaceRequired(
+      patched,
+      'FFmpeg subtitle variant map',
+      /`v:0,a:0,s:0,sgroup:subs,sname:\$\{hlsToken\(session\.subtitleTrack\.name\)\},language:\$\{hlsToken\(session\.subtitleTrack\.language\)\}`/,
+      supportedVariantMap,
+    );
+  }
+
+  const safeProbePipe = [
+    '    const sourceStream = Readable.fromWeb(response.body as any);',
+    "    sourceStream.on('error', () => stdin.destroy());",
+    "    stdin.on('error', (error) => {",
+    "      if ((error as NodeJS.ErrnoException).code !== 'EPIPE' && process.env.STREAM_DEBUG === '1') {",
+    "        console.warn('[stream-linear] ffprobe input pipe failed:', error);",
+    '      }',
+    '    });',
+    '    sourceStream.pipe(stdin);',
+  ].join('\n');
+
+  if (!patched.includes(safeProbePipe)) {
+    patched = replaceRequired(
+      patched,
+      'ffprobe EPIPE handling',
+      [
+        '    const sourceStream = Readable.fromWeb(response.body as any);',
+        "    sourceStream.on('error', () => stdin.destroy());",
+        '    sourceStream.pipe(stdin);',
+      ].join('\n'),
+      safeProbePipe,
+    );
+  }
+
+  return patched;
+}
+
+function patchLinearTimelineRoute(source) {
+  let patched = patchSubtitleCompatibility(source);
+
+  // The permanent subtitle-aware route already contains the full-duration
+  // timeline implementation. Only apply the compatibility corrections above.
+  if (
+    patched.includes('masterPlaylistPath: string;') &&
+    patched.includes('function createFullTimelinePlaylist(')
+  ) {
+    return patched;
+  }
 
   patched = replaceRequired(
     patched,
