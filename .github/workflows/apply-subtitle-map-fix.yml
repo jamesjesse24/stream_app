@@ -1,0 +1,70 @@
+name: Apply subtitle map fix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/apply-subtitle-map-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: Patch permanent sequential subtitle route
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = 'app/api/playback-linear/route.ts';
+          let source = fs.readFileSync(path, 'utf8');
+
+          const unsupported = '`v:0,a:0,s:0,sgroup:subs,sname:${hlsToken(session.subtitleTrack.name)},language:${hlsToken(session.subtitleTrack.language)}`';
+          const supported = '`v:0,a:0,s:0,sgroup:subs,language:${hlsToken(session.subtitleTrack.language)}`';
+          if (!source.includes(supported)) {
+            if (!source.includes(unsupported)) throw new Error('Unsupported subtitle map was not found');
+            source = source.replace(unsupported, supported);
+          }
+
+          const oldProbePipe = [
+            '    const sourceStream = Readable.fromWeb(response.body as any);',
+            "    sourceStream.on('error', () => stdin.destroy());",
+            '    sourceStream.pipe(stdin);',
+          ].join('\n');
+          const safeProbePipe = [
+            '    const sourceStream = Readable.fromWeb(response.body as any);',
+            "    sourceStream.on('error', () => stdin.destroy());",
+            "    stdin.on('error', (error) => {",
+            "      if ((error as NodeJS.ErrnoException).code !== 'EPIPE' && process.env.STREAM_DEBUG === '1') {",
+            "        console.warn('[stream-linear] ffprobe input pipe failed:', error);",
+            '      }',
+            '    });',
+            '    sourceStream.pipe(stdin);',
+          ].join('\n');
+          if (!source.includes(safeProbePipe)) {
+            if (!source.includes(oldProbePipe)) throw new Error('Probe input pipe block was not found');
+            source = source.replace(oldProbePipe, safeProbePipe);
+          }
+
+          fs.writeFileSync(path, source, 'utf8');
+          NODE
+      - run: npm ci
+      - run: npm run build
+      - name: Commit verified permanent fix
+        shell: bash
+        run: |
+          rm -f .github/workflows/apply-subtitle-map-fix.yml
+          git config user.name "James"
+          git config user.email "257743569+jamesjesse24@users.noreply.github.com"
+          git add app/api/playback-linear/route.ts .github/workflows/apply-subtitle-map-fix.yml
+          git commit -m "Fix FFmpeg subtitle map compatibility"
+          git push origin HEAD:main
