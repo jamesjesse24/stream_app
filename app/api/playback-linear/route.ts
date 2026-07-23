@@ -295,7 +295,7 @@ async function startSession(session: LinearSession): Promise<void> {
         '-c:s',
         'webvtt',
         '-var_stream_map',
-        `v:0,a:0,s:0,sgroup:subs,sname:${hlsToken(session.subtitleTrack.name)},language:${hlsToken(session.subtitleTrack.language)}`,
+        `v:0,a:0,s:0,sgroup:subs,language:${hlsToken(session.subtitleTrack.language)}`,
         '-master_pl_name',
         'master.m3u8',
         '-master_pl_publish_rate',
@@ -479,6 +479,11 @@ async function probePreferredSubtitle(sourceUrl: string): Promise<SubtitleTrack 
 
     const sourceStream = Readable.fromWeb(response.body as any);
     sourceStream.on('error', () => stdin.destroy());
+    stdin.on('error', (error) => {
+      if ((error as NodeJS.ErrnoException).code !== 'EPIPE' && process.env.STREAM_DEBUG === '1') {
+        console.warn('[stream-linear] ffprobe input pipe failed:', error);
+      }
+    });
     sourceStream.pipe(stdin);
 
     const code = await new Promise<number | null>((resolve) => {
