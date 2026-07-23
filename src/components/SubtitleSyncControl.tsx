@@ -9,6 +9,7 @@ const MIN_DELAY_SECONDS = -5;
 const MAX_DELAY_SECONDS = 5;
 const STEP_SECONDS = 0.05;
 const BUTTON_STEP_SECONDS = 0.1;
+const APPLY_DEBOUNCE_MS = 220;
 const HOST_ID = 'subtitle-sync-control-host';
 
 interface CueTiming {
@@ -62,7 +63,12 @@ export function SubtitleSyncControl() {
     } catch {
       // Subtitle synchronization must keep working without local storage.
     }
-    dispatchDelay(delaySeconds);
+
+    const timer = window.setTimeout(
+      () => dispatchDelay(delaySeconds),
+      APPLY_DEBOUNCE_MS,
+    );
+    return () => window.clearTimeout(timer);
   }, [delaySeconds]);
 
   useEffect(() => {
