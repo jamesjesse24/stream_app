@@ -12,6 +12,7 @@ node_modules/
 /out/
 /.hls-cache/
 /.hls-vod-cache/
+/.hls-linear-cache/
 
 # Production
 /build
@@ -25,6 +26,7 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+stream-debug.log
 
 # Local env files
 .env
