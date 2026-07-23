@@ -22,13 +22,20 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
-      - run: npm run build
-      - name: Remove one-time workflow
+      - name: Run and capture build
+        shell: pwsh
+        run: |
+          npm run build 2>&1 | Tee-Object "build-full.log"
+          $code = $LASTEXITCODE
+          "Exit code: $code" | Set-Content ".github/stream-stability-build.txt"
+          Get-Content "build-full.log" -Tail 220 | Add-Content ".github/stream-stability-build.txt"
+          exit 0
+      - name: Publish build result and remove workflow
         shell: pwsh
         run: |
           Remove-Item ".github/workflows/verify-stream-stability.yml" -Force
           git config user.name "James"
           git config user.email "257743569+jamesjesse24@users.noreply.github.com"
-          git add .github/workflows/verify-stream-stability.yml
-          git commit -m "Verify stream and subtitle stability build"
+          git add .github/stream-stability-build.txt .github/workflows/verify-stream-stability.yml
+          git commit -m "Capture stream stability build result"
           git push origin HEAD:main
