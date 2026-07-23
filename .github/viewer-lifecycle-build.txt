@@ -1,0 +1,29 @@
+Exit code: 1
+
+> uhd-movies-nextjs@0.1.0 build
+> node scripts/build-next.cjs
+
+⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+   ▲ Next.js 14.0.4
+
+   Creating an optimized production build ...
+ ✓ Compiled successfully
+   Skipping linting
+   Checking validity of types ...
+Failed to compile.
+
+./app/api/playback-linear/route.ts:974:25
+Type error: Type 'MapIterator<LinearSession>' can only be iterated through when using the '--downlevelIteration' flag or with a '--target' of 'es2015' or higher.
+
+  972 |   const expired: LinearSession[] = [];
+  973 |
+> 974 |   for (const session of store.sessions.values()) {
+      |                         ^
+  975 |     for (const [clientId, lastSeen] of session.clients) {
+  976 |       if (now - lastSeen > CLIENT_STALE_MS) session.clients.delete(clientId);
+  977 |     }
