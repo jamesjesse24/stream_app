@@ -87,12 +87,18 @@ function captureLinearProgress(session: LinearSession): void {
     }
   }
 
-  const progressMatches = Array.from(
-    session.stderr.matchAll(/time=(\\d{2}):(\\d{2}):(\\d{2}(?:\\.\\d+)?)/g),
-  );
-  const latest = progressMatches.at(-1);
-  if (latest) {
-    const generated = clockToSeconds(latest[1], latest[2], latest[3]);
+  const progressPattern = /time=(\\d{2}):(\\d{2}):(\\d{2}(?:\\.\\d+)?)/g;
+  let progressMatch: RegExpExecArray | null = null;
+  let latestProgress: RegExpExecArray | null = null;
+  while ((progressMatch = progressPattern.exec(session.stderr)) !== null) {
+    latestProgress = progressMatch;
+  }
+  if (latestProgress) {
+    const generated = clockToSeconds(
+      latestProgress[1],
+      latestProgress[2],
+      latestProgress[3],
+    );
     if (Number.isFinite(generated) && generated > session.generatedSeconds) {
       session.generatedSeconds = generated;
     }
@@ -141,7 +147,10 @@ function createFullTimelinePlaylist(session: LinearSession, source: string): str
 
   const publishedDurations = parsePublishedSegmentDurations(source);
   const segmentCount = Math.max(1, Math.ceil(duration / SEGMENT_DURATION_SECONDS));
-  const publishedMaximum = Math.max(0, ...publishedDurations.values());
+  let publishedMaximum = 0;
+  publishedDurations.forEach((value) => {
+    publishedMaximum = Math.max(publishedMaximum, value);
+  });
   const targetDuration = Math.max(
     SEGMENT_DURATION_SECONDS,
     Math.ceil(publishedMaximum || SEGMENT_DURATION_SECONDS),
