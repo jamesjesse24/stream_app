@@ -14,6 +14,10 @@ const linearRoutePath = path.join(root, 'app', 'api', 'playback-linear', 'route.
 const originalPlayer = fs.readFileSync(playerPath, 'utf8');
 const originalLinearRoute = fs.readFileSync(linearRoutePath, 'utf8');
 
+function normalizeLineEndings(value) {
+  return value.replace(/\r\n?/g, '\n');
+}
+
 function replaceRequired(source, name, pattern, replacement) {
   if (source.includes(replacement)) return source;
   const patched = source.replace(pattern, replacement);
@@ -24,7 +28,8 @@ function replaceRequired(source, name, pattern, replacement) {
   return patched;
 }
 
-let patchedPlayer = originalPlayer;
+let patchedPlayer = normalizeLineEndings(originalPlayer);
+const normalizedLinearRoute = normalizeLineEndings(originalLinearRoute);
 
 const originalModePattern = /  const activeGooglePlaybackMode: GooglePlaybackMode =\r?\n    googlePlaybackOverride\?\.sourceUrl === activePlaybackSource\?\.url\r?\n      \? googlePlaybackOverride\.mode\r?\n      : 'direct';/;
 const directModePattern = /  const activeGooglePlaybackMode: GooglePlaybackMode =\r?\n    googlePlaybackOverride &&\r?\n    googlePlaybackOverride\.sourceUrl === activePlaybackSource\?\.url\r?\n      \? googlePlaybackOverride\.mode\r?\n      : 'direct';/;
@@ -94,7 +99,7 @@ if (!patchedPlayer.includes(autoplayReplacement)) {
 patchedPlayer = patchManualServerSelection(patchedPlayer);
 patchedPlayer = patchLinearTimelinePlayer(patchedPlayer);
 patchedPlayer = patchStreamStabilityPlayer(patchedPlayer);
-const patchedLinearRoute = patchStreamStabilityRoute(originalLinearRoute);
+const patchedLinearRoute = patchStreamStabilityRoute(normalizedLinearRoute);
 
 let exitCode = 1;
 
