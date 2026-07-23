@@ -4,7 +4,9 @@ const { spawn } = require('node:child_process');
 
 const root = process.cwd();
 const playerPath = path.join(root, 'src', 'components', 'EnhancedVideoPlayer.tsx');
+const linearRoutePath = path.join(root, 'app', 'api', 'playback-linear', 'route.ts');
 const originalPlayer = fs.readFileSync(playerPath, 'utf8');
+const originalLinearRoute = fs.readFileSync(linearRoutePath, 'utf8');
 
 function replaceRequired(source, name, pattern, replacement) {
   if (source.includes(replacement)) return source;
@@ -40,13 +42,11 @@ if (!patchedPlayer.includes(remuxModeBlock)) {
   }
 }
 
-const googleRoutePattern = /url: `\/api\/playback-vod\?\$\{params\.toString\(\)\}`,/;
-const linearRoute = 'url: `/api/playback-linear?${params.toString()}`,';
 patchedPlayer = replaceRequired(
   patchedPlayer,
   'Google sequential playback route',
-  googleRoutePattern,
-  linearRoute,
+  /url: `\/api\/playback-vod\?\$\{params\.toString\(\)\}`,/,
+  'url: `/api/playback-linear?${params.toString()}`,'
 );
 
 const autoplayPattern = /    const tryAutoPlay = async \(\) => \{\r?\n      if \(autoplayAttempted \|\| \(!autoPlay && !shouldResumePlayingRef\.current\)\) return;\r?\n      autoplayAttempted = true;\r?\n      try \{\r?\n        await video\.play\(\);\r?\n      \} catch \(error\) \{\r?\n        if \(\(error as DOMException\)\?\.name !== 'NotAllowedError'\) \{\r?\n          console\.warn\('Playback could not start automatically:', error\);\r?\n        \}\r?\n        setIsPlaying\(false\);\r?\n      \}\r?\n    \};/;
@@ -84,7 +84,22 @@ if (!patchedPlayer.includes(autoplayReplacement)) {
   );
 }
 
+const patchedLinearRoute = originalLinearRoute
+  .replace(
+    "import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';",
+    "import { spawn, type ChildProcess } from 'child_process';",
+  )
+  .replace(
+    'process: ChildProcessWithoutNullStreams | null;',
+    'process: ChildProcess | null;',
+  )
+  .replace(
+    "response.body as unknown as import('stream/web').ReadableStream<Uint8Array>",
+    'response.body as any',
+  );
+
 fs.writeFileSync(playerPath, patchedPlayer, 'utf8');
+fs.writeFileSync(linearRoutePath, patchedLinearRoute, 'utf8');
 
 const nextBin = require.resolve('next/dist/bin/next');
 const args = [nextBin, 'dev', ...process.argv.slice(2)];
@@ -108,13 +123,14 @@ const child = spawn(process.execPath, args, {
 let stopping = false;
 let restored = false;
 
-function restorePlayer() {
+function restoreSources() {
   if (restored) return;
   restored = true;
   try {
     fs.writeFileSync(playerPath, originalPlayer, 'utf8');
+    fs.writeFileSync(linearRoutePath, originalLinearRoute, 'utf8');
   } catch (error) {
-    console.error('[stream-debug] Could not restore player source:', error);
+    console.error('[stream-debug] Could not restore patched source files:', error);
   }
 }
 
@@ -126,16 +142,16 @@ function stop(signal) {
 
 process.on('SIGINT', () => stop('SIGINT'));
 process.on('SIGTERM', () => stop('SIGTERM'));
-process.on('exit', restorePlayer);
+process.on('exit', restoreSources);
 
 child.on('error', (error) => {
   console.error('[stream-debug] Failed to start Next.js:', error);
-  restorePlayer();
+  restoreSources();
   process.exitCode = 1;
 });
 
 child.on('exit', (code, signal) => {
-  restorePlayer();
+  restoreSources();
   if (signal) {
     console.log(`[stream-debug] Next.js stopped by ${signal}.`);
     process.exitCode = 0;
