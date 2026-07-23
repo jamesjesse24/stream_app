@@ -1,6 +1,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const {
+  patchLinearTimelinePlayer,
+  patchLinearTimelineRoute,
+} = require('./patch-linear-timeline.cjs');
 
 const root = path.resolve(__dirname, '..');
 const playerPath = path.join(root, 'src', 'components', 'EnhancedVideoPlayer.tsx');
@@ -85,7 +89,9 @@ if (!patchedPlayer.includes(autoplayReplacement)) {
   );
 }
 
-const patchedLinearRoute = originalLinearRoute
+patchedPlayer = patchLinearTimelinePlayer(patchedPlayer);
+
+let patchedLinearRoute = originalLinearRoute
   .replace(
     "import { spawn, type ChildProcessWithoutNullStreams } from 'child_process';",
     "import { spawn, type ChildProcess } from 'child_process';",
@@ -98,6 +104,7 @@ const patchedLinearRoute = originalLinearRoute
     "response.body as unknown as import('stream/web').ReadableStream<Uint8Array>",
     'response.body as any',
   );
+patchedLinearRoute = patchLinearTimelineRoute(patchedLinearRoute);
 
 let exitCode = 1;
 
